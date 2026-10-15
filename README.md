@@ -100,6 +100,23 @@ ligue "mostrar fora do filtro" ou ajuste os filtros; para tirá-los da planilha,
   Ao lado fica o **Contato** (telefone). Algumas fontes só mostram o telefone da imobiliária e o Informante sai vazio;
   nesse caso a avaliadora pode preencher à mão.
 
+**Como ler a linha da triagem: "Precisa de revisão: 37% · Justificativa coerente: 84% · Nota de coerência: 3.5/5"?**
+É a conferência do Jev (segunda camada) sobre a sugestão da IA das fotos. O Jev **não vê as fotos**: ele só lê o texto da
+sugestão (classe, padrão, justificativa, confiança e quantas fotos foram lidas) e julga se ela faz sentido. Os três números são:
+- **Precisa de revisão (37%):** a chance, segundo o Jev, de um humano precisar rever a sugestão antes de usá-la. Quanto menor, melhor.
+  Acima de `JEV_LIMITE_REVISAO` (0,5) a revisão vira obrigatória.
+- **Justificativa coerente (84%):** a chance de a justificativa descrever sinais compatíveis com a classe de conservação
+  sugerida. Quanto maior, melhor. Abaixo de `JEV_LIMITE_COERENCIA` (0,5) a revisão vira obrigatória.
+- **Nota de coerência (3.5/5):** a nota geral de consistência entre fotos lidas, justificativa e classe: 1 = incoerente,
+  3 = razoável, 5 = excelente. Pode ter decimal porque é uma média ponderada. Abaixo de `JEV_NOTA_MINIMA` (3) a revisão vira obrigatória.
+
+Exemplo: 37% / 84% / 3.5 está dentro dos três limites, então o quadro aparece verde ("Triagem sem ressalvas"). Se qualquer um
+passar do limite, ou se o Jev ficar indisponível, o quadro fica vermelho ("Revisão humana obrigatória") com o motivo.
+Se a confiança da IA for baixa ou o padrão vier vazio, aparece também a "Segunda opinião de padrão", com até 3 candidatos e a
+chance de cada um; ela não altera a sugestão.
+Atenção: "sem ressalvas" **não é aprovação** e não confirma que a classe está certa (o Jev nunca viu as fotos); só indica que
+a sugestão é consistente em si. Nada vai para a avaliação sem o OK da avaliadora, e é ela quem decide.
+
 **O que é um "Outlier"?**
 Um imóvel cujo **preço por m²** está muito fora do normal da mesma busca, caro ou barato demais. A regra: calcula-se a mediana
 e o desvio padrão do preço/m² de todos os imóveis; quem fica a **mais de 1,5 desvio padrão** da mediana ganha a etiqueta azul
