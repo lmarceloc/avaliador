@@ -31,7 +31,36 @@ function lerNumero(v: string): number | null {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
-function CampoFaixa({ rotulo, faixa, onChange, unidade }: { rotulo: string; faixa: Faixa; onChange: (f: Faixa) => void; unidade?: string }) {
+const formatarMoeda = (n: number | null) =>
+  n === null ? "" : n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Máscara de reais enquanto digita: "1800000" → "1.800.000"; a vírgula abre os centavos (máx. 2 casas). */
+function mascararMoeda(texto: string): { texto: string; valor: number | null } {
+  const [inteiroBruto, ...resto] = texto.replace(/[^\d,]/g, "").split(",");
+  const inteiro = inteiroBruto.replace(/^0+(?=\d)/, "");
+  const centavos = resto.join("").slice(0, 2);
+  const formatado = inteiro.replace(/\B(?=(\d{3})+$)/g, ".") + (resto.length > 0 ? "," + centavos : "");
+  if (inteiro === "" && centavos === "") return { texto: formatado, valor: null };
+  return { texto: formatado, valor: Number(`${inteiro || "0"}.${centavos.padEnd(2, "0")}`) };
+}
+
+function InputMoeda({ valor, onChange, placeholder, rotulo }: { valor: number | null; onChange: (v: number | null) => void; placeholder: string; rotulo: string }) {
+  const [digitando, setDigitando] = useState<string | null>(null);
+  return (
+    <input
+      type="text" inputMode="decimal" placeholder={placeholder} aria-label={rotulo} className={inputCls}
+      value={digitando ?? formatarMoeda(valor)}
+      onChange={(e) => {
+        const m = mascararMoeda(e.target.value);
+        setDigitando(m.texto);
+        onChange(m.valor);
+      }}
+      onBlur={() => setDigitando(null)} // volta ao formato completo: 1.800.000,00
+    />
+  );
+}
+
+function CampoFaixa({ rotulo, faixa, onChange, unidade, moeda }: { rotulo: string; faixa: Faixa; onChange: (f: Faixa) => void; unidade?: string; moeda?: boolean }) {
   return (
     <div>
       <span className={rotuloCls}>
@@ -39,17 +68,25 @@ function CampoFaixa({ rotulo, faixa, onChange, unidade }: { rotulo: string; faix
         {unidade && <span className="normal-case tracking-normal"> ({unidade})</span>}
       </span>
       <div className="flex items-center gap-2">
-        <input
-          type="number" inputMode="numeric" min={0} placeholder="mín." aria-label={`${rotulo} mínimo`}
-          className={inputCls} value={faixa.min ?? ""}
-          onChange={(e) => onChange({ ...faixa, min: lerNumero(e.target.value) })}
-        />
+        {moeda ? (
+          <InputMoeda rotulo={`${rotulo} mínimo`} placeholder="0,00" valor={faixa.min} onChange={(v) => onChange({ ...faixa, min: v })} />
+        ) : (
+          <input
+            type="number" inputMode="numeric" min={0} placeholder="mín." aria-label={`${rotulo} mínimo`}
+            className={inputCls} value={faixa.min ?? ""}
+            onChange={(e) => onChange({ ...faixa, min: lerNumero(e.target.value) })}
+          />
+        )}
         <span className="text-ink-3">–</span>
-        <input
-          type="number" inputMode="numeric" min={0} placeholder="máx." aria-label={`${rotulo} máximo`}
-          className={inputCls} value={faixa.max ?? ""}
-          onChange={(e) => onChange({ ...faixa, max: lerNumero(e.target.value) })}
-        />
+        {moeda ? (
+          <InputMoeda rotulo={`${rotulo} máximo`} placeholder="0,00" valor={faixa.max} onChange={(v) => onChange({ ...faixa, max: v })} />
+        ) : (
+          <input
+            type="number" inputMode="numeric" min={0} placeholder="máx." aria-label={`${rotulo} máximo`}
+            className={inputCls} value={faixa.max ?? ""}
+            onChange={(e) => onChange({ ...faixa, max: lerNumero(e.target.value) })}
+          />
+        )}
       </div>
     </div>
   );
@@ -161,7 +198,7 @@ export function PainelFiltros({ filtros, onFiltros, fontes, onFontes, buscando, 
 
       <CampoFaixa rotulo="Área construída" unidade="m²" faixa={filtros.area_construida} onChange={(f) => set("area_construida", f)} />
       <CampoFaixa rotulo="Área do terreno" unidade="m²" faixa={filtros.area_terreno} onChange={(f) => set("area_terreno", f)} />
-      <CampoFaixa rotulo="Preço total" unidade="R$" faixa={filtros.preco_total} onChange={(f) => set("preco_total", f)} />
+      <CampoFaixa rotulo="Preço total" unidade="R$" moeda faixa={filtros.preco_total} onChange={(f) => set("preco_total", f)} />
 
       <div className="grid grid-cols-2 gap-3">
         <CampoMinimo rotulo="Dormitórios" valor={filtros.dormitorios_min} onChange={(v) => set("dormitorios_min", v)} />
