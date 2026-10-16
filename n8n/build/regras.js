@@ -98,6 +98,15 @@ function avaliarFaixa(campo, valor, f) {
   const ok = (f.min === null || valor >= f.min) && (f.max === null || valor <= f.max);
   return { campo, exigido, encontrado: valor, resultado: ok ? "atende" : "nao_atende" };
 }
+function avaliarSimNao(campo, valor, exigencia) {
+  const quer = exigencia === "sim";
+  return {
+    campo,
+    exigido: quer,
+    encontrado: valor,
+    resultado: valor === null ? "nao_verificado" : valor === quer ? "atende" : "nao_atende"
+  };
+}
 function avaliarMinimo(campo, valor, min) {
   if (valor === null) return { campo, exigido: { min }, encontrado: null, resultado: "nao_verificado" };
   return { campo, exigido: { min }, encontrado: valor, resultado: valor >= min ? "atende" : "nao_atende" };
@@ -134,14 +143,12 @@ function avaliarCriterios(imovel, filtros) {
     if (filtros.banheiros_min !== null) c.push(avaliarMinimo("banheiros", imovel.banheiros, filtros.banheiros_min));
     if (filtros.vagas_min !== null) c.push(avaliarMinimo("vagas_total", imovel.vagas_total, filtros.vagas_min));
   }
-  if (filtros.condominio !== "indiferente") {
-    const quer = filtros.condominio === "sim";
-    c.push({
-      campo: "condominio",
-      exigido: quer,
-      encontrado: imovel.condominio,
-      resultado: imovel.condominio === null ? "nao_verificado" : imovel.condominio === quer ? "atende" : "nao_atende"
-    });
+  if (filtros.condominio !== "indiferente") c.push(avaliarSimNao("condominio", imovel.condominio, filtros.condominio));
+  if (imovel.tipo !== "terreno") {
+    if (filtros.area_lazer && filtros.area_lazer !== "indiferente")
+      c.push(avaliarSimNao("area_lazer", imovel.area_lazer ?? null, filtros.area_lazer));
+    if (filtros.piscina && filtros.piscina !== "indiferente")
+      c.push(avaliarSimNao("piscina", imovel.piscina ?? null, filtros.piscina));
   }
   const atendidos = c.filter((x) => x.resultado === "atende").length;
   const naoVerificados = c.filter((x) => x.resultado === "nao_verificado").length;

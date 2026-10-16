@@ -224,6 +224,8 @@ export function DetalheImovel({ imovel: i, avaliacao, onFechar, onSalvar, onAnte
                 <Linha rotulo="Vagas cobertas" valor={numero(i.vagas_cobertas)} />
                 <Linha rotulo="Vagas descobertas" valor={numero(i.vagas_descobertas)} />
                 <Linha rotulo="Vagas (total)" valor={numero(i.vagas_total)} />
+                <Linha rotulo="Área de lazer / churrasqueira" valor={simNao(i.area_lazer ?? null)} />
+                <Linha rotulo="Piscina" valor={simNao(i.piscina ?? null)} />
                 <Linha rotulo="Padrão (anúncio)" valor={i.padrao_acabamento_anuncio ?? "—"} />
                 <Linha rotulo="Data do anúncio" valor={data(i.data_anuncio)} />
                 <Linha rotulo="Informante" valor={i.fonte.informante ?? "—"} />

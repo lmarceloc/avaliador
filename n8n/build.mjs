@@ -46,6 +46,8 @@ const filtros = {
   vagas_min: f.vagas_min ?? null,
   condominio: f.condominio || "indiferente",
   pavimentos: faixa(f.pavimentos),
+  area_lazer: f.area_lazer || "indiferente",
+  piscina: f.piscina || "indiferente",
 };
 
 // FNV-1a duplo (sem require('crypto'), que costuma estar bloqueado no nó Code)

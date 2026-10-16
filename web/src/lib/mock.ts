@@ -48,6 +48,8 @@ interface Base {
   vagas: number | null;
   pav: number | null;
   cond: boolean | null;
+  lazer: boolean | null;
+  piscina: boolean | null;
 }
 
 function gerarBase(r: () => number): Base {
@@ -59,7 +61,7 @@ function gerarBase(r: () => number): Base {
     return {
       tipo, bairro: pick(BAIRROS), rua: temEndereco ? pick(RUAS) : null, numero: null,
       area: null, terreno, preco: Math.round((terreno * (450 + r() * 700)) / 1000) * 1000,
-      dorm: null, suites: null, ban: null, vagas: null, pav: null, cond: r() > 0.8,
+      dorm: null, suites: null, ban: null, vagas: null, pav: null, cond: r() > 0.8, lazer: null, piscina: null,
     };
   }
   const area = r() > 0.15 ? Math.round(55 + r() * (tipo === "casa" ? 320 : 140)) : null;
@@ -79,6 +81,8 @@ function gerarBase(r: () => number): Base {
     vagas: r() > 0.1 ? Math.floor(r() * 4) : null,
     pav: tipo === "casa" ? (r() > 0.3 ? 1 + Math.floor(r() * 2) : null) : 1,
     cond: tipo === "apartamento" ? true : r() > 0.75 ? true : r() > 0.2 ? false : null,
+    lazer: r() > 0.3 ? r() > 0.45 : null,
+    piscina: r() > 0.3 ? r() > 0.75 : null,
   };
 }
 
@@ -110,6 +114,8 @@ function montarImovel(fonte: string, codigo: string, b: Base, r: () => number, v
     vagas_cobertas: cobertas,
     vagas_descobertas: cobertas !== null && b.vagas !== null ? b.vagas - cobertas : null,
     vagas_total: b.vagas,
+    area_lazer: b.lazer,
+    piscina: b.piscina,
     padrao_acabamento_anuncio: PADROES[Math.floor(r() * PADROES.length)],
     estado_conservacao_anuncio: null,
     fotos,

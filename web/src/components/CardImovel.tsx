@@ -102,6 +102,13 @@ export function CardImovel({ imovel: i, avaliacao, onAbrir }: Props) {
           <Dado rotulo="Vagas" valor={numero(i.vagas_total)} />
         </dl>
 
+        {(i.area_lazer || i.piscina) && (
+          <div className="flex flex-wrap gap-1.5">
+            {i.area_lazer && <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-ink-2">Lazer / churrasqueira</span>}
+            {i.piscina && <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-ink-2">Piscina</span>}
+          </div>
+        )}
+
         <div className="mt-auto flex items-center justify-between gap-2">
           <div className="min-w-0 text-xs text-ink-3">
             <p className="truncate font-medium text-ink-2">{i.fonte.nome}</p>

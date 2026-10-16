@@ -1,7 +1,8 @@
 // Tipos do contrato front ↔ n8n (especificação, seção 5).
 
 export type TipoImovel = "casa" | "apartamento" | "terreno";
-export type Condominio = "sim" | "nao" | "indiferente";
+export type SimNao = "sim" | "nao" | "indiferente";
+export type Condominio = SimNao;
 
 export interface Faixa {
   min: number | null;
@@ -20,6 +21,8 @@ export interface Filtros {
   vagas_min: number | null;
   condominio: Condominio;
   pavimentos: Faixa;
+  area_lazer: SimNao;
+  piscina: SimNao;
 }
 
 export interface RequisicaoBusca {
@@ -94,6 +97,9 @@ export interface Imovel {
   vagas_cobertas: number | null;
   vagas_descobertas: number | null;
   vagas_total: number | null;
+  /** Área de lazer ou churrasqueira. Opcional: respostas em cache anteriores ao campo não o trazem. */
+  area_lazer?: boolean | null;
+  piscina?: boolean | null;
   padrao_acabamento_anuncio: string | null;
   estado_conservacao_anuncio: string | null;
   fotos: string[];
@@ -155,4 +161,6 @@ export const FILTROS_VAZIOS: Filtros = {
   vagas_min: null,
   condominio: "indiferente",
   pavimentos: { min: null, max: null },
+  area_lazer: "indiferente",
+  piscina: "indiferente",
 };

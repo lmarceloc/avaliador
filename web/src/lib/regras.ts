@@ -1,7 +1,7 @@
 // Regras de negócio da seção 4 (normalização, filtros, deduplicação e outliers).
 // Funções puras, sem dependências: o mesmo código pode ir para um nó Code do n8n.
 
-import type { Criterio, Faixa, Filtros, Imovel, RespostaBusca } from "./contrato";
+import type { Criterio, Faixa, Filtros, Imovel, RespostaBusca, SimNao } from "./contrato";
 import { normalizarBairro, semAcento } from "./bairros";
 
 // ---------- 4.1 Normalização ----------
@@ -75,6 +75,16 @@ function avaliarFaixa(campo: string, valor: number | null, f: Faixa): Criterio {
   return { campo, exigido, encontrado: valor, resultado: ok ? "atende" : "nao_atende" };
 }
 
+function avaliarSimNao(campo: string, valor: boolean | null, exigencia: SimNao): Criterio {
+  const quer = exigencia === "sim";
+  return {
+    campo,
+    exigido: quer,
+    encontrado: valor,
+    resultado: valor === null ? "nao_verificado" : valor === quer ? "atende" : "nao_atende",
+  };
+}
+
 function avaliarMinimo(campo: string, valor: number | null, min: number): Criterio {
   if (valor === null) return { campo, exigido: { min }, encontrado: null, resultado: "nao_verificado" };
   return { campo, exigido: { min }, encontrado: valor, resultado: valor >= min ? "atende" : "nao_atende" };
@@ -118,14 +128,14 @@ export function avaliarCriterios(imovel: Imovel, filtros: Filtros): Pick<Imovel,
     if (filtros.vagas_min !== null) c.push(avaliarMinimo("vagas_total", imovel.vagas_total, filtros.vagas_min));
   }
 
-  if (filtros.condominio !== "indiferente") {
-    const quer = filtros.condominio === "sim";
-    c.push({
-      campo: "condominio",
-      exigido: quer,
-      encontrado: imovel.condominio,
-      resultado: imovel.condominio === null ? "nao_verificado" : imovel.condominio === quer ? "atende" : "nao_atende",
-    });
+  if (filtros.condominio !== "indiferente") c.push(avaliarSimNao("condominio", imovel.condominio, filtros.condominio));
+
+  // Lazer e piscina não se aplicam a terreno. Requisições antigas (cache) podem não trazer esses filtros.
+  if (imovel.tipo !== "terreno") {
+    if (filtros.area_lazer && filtros.area_lazer !== "indiferente")
+      c.push(avaliarSimNao("area_lazer", imovel.area_lazer ?? null, filtros.area_lazer));
+    if (filtros.piscina && filtros.piscina !== "indiferente")
+      c.push(avaliarSimNao("piscina", imovel.piscina ?? null, filtros.piscina));
   }
 
   const atendidos = c.filter((x) => x.resultado === "atende").length;

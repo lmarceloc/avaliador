@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Condominio, Faixa, Filtros, TipoImovel } from "@/lib/contrato";
+import type { Faixa, Filtros, SimNao, TipoImovel } from "@/lib/contrato";
 import { BAIRROS_PONTA_GROSSA, semAcento } from "@/lib/bairros";
 import { FONTES } from "@/lib/fontes";
 
@@ -101,6 +101,24 @@ function CampoMinimo({ rotulo, valor, onChange }: { rotulo: string; valor: numbe
         value={valor ?? ""} onChange={(e) => onChange(lerNumero(e.target.value))}
       />
     </label>
+  );
+}
+
+function CampoSimNao({ rotulo, valor, onChange }: { rotulo: string; valor: SimNao; onChange: (v: SimNao) => void }) {
+  return (
+    <fieldset>
+      <legend className={rotuloCls}>{rotulo}</legend>
+      <div className="grid grid-cols-3 overflow-hidden rounded-md border border-line">
+        {(["indiferente", "sim", "nao"] as SimNao[]).map((c) => (
+          <button
+            key={c} type="button" aria-pressed={valor === c} onClick={() => onChange(c)}
+            className={`px-2 py-1.5 text-sm ${valor === c ? "bg-ink text-bg font-medium" : "bg-surface text-ink-2 hover:bg-surface-2"}`}
+          >
+            {c === "indiferente" ? "Indiferente" : c === "sim" ? "Sim" : "Não"}
+          </button>
+        ))}
+      </div>
+    </fieldset>
   );
 }
 
@@ -209,19 +227,9 @@ export function PainelFiltros({ filtros, onFiltros, fontes, onFontes, buscando, 
 
       <CampoFaixa rotulo="Pavimentos" faixa={filtros.pavimentos} onChange={(f) => set("pavimentos", f)} />
 
-      <fieldset>
-        <legend className={rotuloCls}>Condomínio</legend>
-        <div className="grid grid-cols-3 overflow-hidden rounded-md border border-line">
-          {(["indiferente", "sim", "nao"] as Condominio[]).map((c) => (
-            <button
-              key={c} type="button" aria-pressed={filtros.condominio === c} onClick={() => set("condominio", c)}
-              className={`px-2 py-1.5 text-sm ${filtros.condominio === c ? "bg-ink text-bg font-medium" : "bg-surface text-ink-2 hover:bg-surface-2"}`}
-            >
-              {c === "indiferente" ? "Indiferente" : c === "sim" ? "Sim" : "Não"}
-            </button>
-          ))}
-        </div>
-      </fieldset>
+      <CampoSimNao rotulo="Condomínio" valor={filtros.condominio} onChange={(v) => set("condominio", v)} />
+      <CampoSimNao rotulo="Área de lazer / churrasqueira" valor={filtros.area_lazer} onChange={(v) => set("area_lazer", v)} />
+      <CampoSimNao rotulo="Piscina" valor={filtros.piscina} onChange={(v) => set("piscina", v)} />
 
       <fieldset>
         <legend className={rotuloCls}>Fontes <span className="text-bad">*</span></legend>

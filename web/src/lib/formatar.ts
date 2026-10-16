@@ -38,6 +38,8 @@ export const ROTULO_CAMPO: Record<string, string> = {
   vagas_cobertas: "Vagas cobertas",
   vagas_descobertas: "Vagas descobertas",
   vagas_total: "Vagas (total)",
+  area_lazer: "Área de lazer / churrasqueira",
+  piscina: "Piscina",
   data_anuncio: "Data do anúncio",
   fotos: "Fotos",
 };

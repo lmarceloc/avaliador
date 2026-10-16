@@ -5,7 +5,7 @@ import { enderecoCompleto } from "./formatar";
 const COLUNAS = [
   "Nº", "Endereço com nº", "Bairro", "Área construída (m²)", "Área do terreno (m²)", "Preço total (R$)",
   "Preço/m² (R$)", "Pavimentos", "Condomínio", "Dormitórios", "Suítes", "Banheiros", "Vagas cobertas",
-  "Vagas descobertas", "Vagas total", "Padrão de acabamento (VEIU)", "Idade", "Estado IBAPE", "Data do evento",
+  "Vagas descobertas", "Vagas total", "Área de lazer / churrasqueira", "Piscina", "Padrão de acabamento (VEIU)", "Idade", "Estado IBAPE", "Data do evento",
   "Informante", "Contato", "Fonte de pesquisa", "Link do anúncio",
 ];
 
@@ -31,6 +31,8 @@ function linhas(imoveis: Imovel[], avaliacoes: Record<string, AvaliacaoImovel>):
       i.vagas_cobertas,
       i.vagas_descobertas,
       i.vagas_total,
+      bool(i.area_lazer ?? null),
+      bool(i.piscina ?? null),
       a?.padrao_acabamento || i.padrao_acabamento_anuncio,
       null, // idade: não publicada pelas fontes; preenchida pela avaliadora
       a?.estado_conservacao || i.estado_conservacao_anuncio,

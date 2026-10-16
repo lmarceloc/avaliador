@@ -99,6 +99,8 @@ function imovelBase(fonte, extra) {
     vagas_cobertas: null,
     vagas_descobertas: null,
     vagas_total: null,
+    area_lazer: null,
+    piscina: null,
     padrao_acabamento_anuncio: null,
     estado_conservacao_anuncio: null,
     fotos: [],
