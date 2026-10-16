@@ -190,6 +190,16 @@ export function BuscaApp() {
     setAvaliacoes((atual) => ({ ...atual, [salvo.imovel_id]: salvo }));
   }, []);
 
+  // Desmarcar a caixinha do card volta para "não decidido" (null), não para "Excluído".
+  const incluirNaPlanilha = useCallback(
+    (id: string, incluir: boolean) =>
+      salvarAvaliacao({
+        ...(avaliacoes[id] ?? { imovel_id: id, estado_conservacao: null, padrao_acabamento: null, observacoes: null }),
+        incluido_avaliacao: incluir ? true : null,
+      }),
+    [avaliacoes, salvarAvaliacao],
+  );
+
   const imoveis = useMemo(() => resposta?.imoveis ?? [], [resposta]);
 
   const visiveis = useMemo(() => {
@@ -412,7 +422,10 @@ export function BuscaApp() {
               ) : (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(270px,1fr))] gap-4">
                   {visiveis.map((i) => (
-                    <CardImovel key={i.id} imovel={i} avaliacao={avaliacoes[i.id]} onAbrir={() => setAberto(i.id)} />
+                    <CardImovel
+                      key={i.id} imovel={i} avaliacao={avaliacoes[i.id]} onAbrir={() => setAberto(i.id)}
+                      onIncluir={(incluir) => incluirNaPlanilha(i.id, incluir)}
+                    />
                   ))}
                 </div>
               )}

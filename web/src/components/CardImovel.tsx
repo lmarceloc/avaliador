@@ -1,6 +1,7 @@
 /* eslint-disable @next/next/no-img-element -- fotos vêm de domínios variados das imobiliárias */
 "use client";
 
+import { useState } from "react";
 import type { AvaliacaoImovel, Imovel } from "@/lib/contrato";
 import { data, enderecoCompleto, m2, moeda, numero, ROTULO_TIPO } from "@/lib/formatar";
 
@@ -49,33 +50,63 @@ interface Props {
   imovel: Imovel;
   avaliacao?: AvaliacaoImovel;
   onAbrir: () => void;
+  onIncluir: (incluir: boolean) => Promise<void>;
 }
 
-export function CardImovel({ imovel: i, avaliacao, onAbrir }: Props) {
+/** Caixinha "Planilha" no canto da foto: inclui/retira da exportação sem abrir o detalhe. */
+function CaixaPlanilha({ incluido, onIncluir }: { incluido: boolean; onIncluir: (incluir: boolean) => Promise<void> }) {
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  return (
+    <label
+      title={erro ?? (incluido ? "Retirar da planilha" : "Incluir na planilha")}
+      className={`absolute left-2 top-2 z-10 flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs font-semibold shadow-sm ${incluido ? "bg-accent text-accent-ink" : "bg-surface/90 text-ink backdrop-blur"} ${erro ? "ring-2 ring-bad" : ""} ${salvando ? "opacity-70" : ""}`}
+    >
+      <input
+        type="checkbox" className="size-4 cursor-pointer accent-[var(--accent)]" checked={incluido} disabled={salvando}
+        onChange={async (e) => {
+          setSalvando(true);
+          setErro(null);
+          try {
+            await onIncluir(e.target.checked);
+          } catch (err) {
+            setErro(`Erro ao salvar: ${(err as Error).message}`);
+          } finally {
+            setSalvando(false);
+          }
+        }}
+      />
+      {incluido ? "Na planilha" : "Planilha"}
+    </label>
+  );
+}
+
+export function CardImovel({ imovel: i, avaliacao, onAbrir, onIncluir }: Props) {
   const incluido = avaliacao?.incluido_avaliacao;
   return (
     <article
       className={`group flex flex-col overflow-hidden rounded-lg border bg-surface shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${incluido === true ? "border-accent ring-1 ring-accent" : "border-line"} ${incluido === false ? "opacity-60" : ""}`}
     >
-      <button type="button" onClick={onAbrir} className="relative block aspect-[4/3] w-full overflow-hidden bg-surface-2 text-left" aria-label={`Abrir detalhes: ${i.titulo}`}>
-        {i.foto_capa ? (
-          <img
-            src={i.foto_capa} alt="" loading="lazy" decoding="async"
-            onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
-            className="size-full object-cover transition duration-300 group-hover:scale-[1.03]"
-          />
-        ) : (
-          <div className="grid size-full place-items-center text-sm text-ink-3">Sem fotos</div>
-        )}
-        <span className="absolute bottom-2 right-2 rounded bg-black/65 px-1.5 py-0.5 text-[11px] font-medium text-white">
-          {i.fotos.length} foto{i.fotos.length === 1 ? "" : "s"}
-        </span>
-        {incluido !== undefined && incluido !== null && (
-          <span className={`absolute left-2 top-2 rounded px-1.5 py-0.5 text-[11px] font-semibold ${incluido ? "bg-accent text-accent-ink" : "bg-ink text-bg"}`}>
-            {incluido ? "Incluído" : "Excluído"}
+      <div className="relative">
+        <CaixaPlanilha incluido={incluido === true} onIncluir={onIncluir} />
+        <button type="button" onClick={onAbrir} className="relative block aspect-[4/3] w-full overflow-hidden bg-surface-2 text-left" aria-label={`Abrir detalhes: ${i.titulo}`}>
+          {i.foto_capa ? (
+            <img
+              src={i.foto_capa} alt="" loading="lazy" decoding="async"
+              onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
+              className="size-full object-cover transition duration-300 group-hover:scale-[1.03]"
+            />
+          ) : (
+            <div className="grid size-full place-items-center text-sm text-ink-3">Sem fotos</div>
+          )}
+          <span className="absolute bottom-2 right-2 rounded bg-black/65 px-1.5 py-0.5 text-[11px] font-medium text-white">
+            {i.fotos.length} foto{i.fotos.length === 1 ? "" : "s"}
           </span>
-        )}
-      </button>
+          {incluido === false && (
+            <span className="absolute right-2 top-2 rounded bg-ink px-1.5 py-0.5 text-[11px] font-semibold text-bg">Excluído</span>
+          )}
+        </button>
+      </div>
 
       <div className="flex flex-1 flex-col gap-3 p-4">
         <div className="flex flex-wrap gap-1.5">
