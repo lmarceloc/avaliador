@@ -211,6 +211,7 @@ O campo "Padrão de acabamento" é **um só**: o que a IA sugere e o que você p
 | 21 | Contato | Telefone/contato do anúncio |
 | 22 | Fonte de pesquisa | Nome da imobiliária |
 | 23 | Link do anúncio | URL original |
+| 24 | Observações | Sua análise (texto livre da ficha); vazia se não preencheu |
 
 Dados que o anúncio não informa saem como **célula vazia** (nunca zero).
 

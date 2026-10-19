@@ -69,7 +69,7 @@ num nó **Code** depois do "Juntar resultados".
 `Nº`, `Endereço com nº`, `Bairro`, `Área construída (m²)`, `Área do terreno (m²)`, `Preço total (R$)`, `Preço/m² (R$)`,
 `Pavimentos`, `Condomínio`, `Dormitórios`, `Suítes`, `Banheiros`, `Vagas cobertas`, `Vagas descobertas`, `Vagas total`,
 `Padrão de acabamento (VEIU)`, `Idade`, `Estado IBAPE`, `Data do evento`, `Informante`, `Contato`, `Fonte de pesquisa`,
-`Link do anúncio`.
+`Link do anúncio`, `Observações`.
 
 ## Perguntas frequentes
 
