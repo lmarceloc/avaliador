@@ -17,6 +17,8 @@ export const FONTES: Fonte[] = [
   { id: "tavarnaro", nome: "Tavarnaro Consultoria", ativa: true },
   { id: "aspen", nome: "Imobiliária Aspen", ativa: true },
   { id: "torre_branca", nome: "Torre Blanca", ativa: true },
+  { id: "taques", nome: "Taques Negócios Imobiliários", ativa: true },
+  { id: "montoro", nome: "Montoro Imóveis", ativa: true },
 ];
 
 export const FONTES_ATIVAS = FONTES.filter((f) => f.ativa);

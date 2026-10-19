@@ -24,7 +24,7 @@ const CRED_WEBHOOK = { httpHeaderAuth: { id: "", name: "X-API-Key – Busca de I
 const codigoValidar = String.raw`// Regras da seção 5.1 + chave de cache (4.5)
 const req = $json.body || {};
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const FONTES_CADASTRADAS = ["flow", "kikina", "adquira", "conceito", "casatop", "classica", "madol", "tavarnaro", "aspen", "torre_branca", "quintoandar"];
+const FONTES_CADASTRADAS = ["flow", "kikina", "adquira", "conceito", "casatop", "classica", "madol", "tavarnaro", "aspen", "torre_branca", "taques", "montoro", "quintoandar"];
 
 let erro = null;
 if (!req.requisicao_id || !UUID.test(req.requisicao_id)) erro = "requisicao_id deve ser um UUID";
@@ -62,7 +62,7 @@ function hash(s) {
 }
 const fontes = (req.fontes || []).slice().sort();
 const chave_cache = hash(JSON.stringify({ cidade: req.cidade || "Ponta Grossa", fontes, filtros }));
-const nomes = { flow: "Flow Imobiliária", kikina: "Kikina Imóveis", adquira: "Adquira Imóveis", conceito: "Conceito Imóveis", casatop: "Imobiliária Casa Top", classica: "Clássica Imóveis", madol: "Madol Imóveis", tavarnaro: "Tavarnaro Consultoria", aspen: "Imobiliária Aspen", torre_branca: "Torre Blanca", quintoandar: "QuintoAndar" };
+const nomes = { flow: "Flow Imobiliária", kikina: "Kikina Imóveis", adquira: "Adquira Imóveis", conceito: "Conceito Imóveis", casatop: "Imobiliária Casa Top", classica: "Clássica Imóveis", madol: "Madol Imóveis", tavarnaro: "Tavarnaro Consultoria", aspen: "Imobiliária Aspen", torre_branca: "Torre Blanca", taques: "Taques Negócios Imobiliários", montoro: "Montoro Imóveis", quintoandar: "QuintoAndar" };
 
 return [{
   json: {

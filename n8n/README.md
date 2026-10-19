@@ -44,10 +44,11 @@ Testadas em 14/10/2026 pelo n8n de produção: 9 fontes em paralelo terminaram e
 
 | Fonte | Plataforma | Como coleta | Observações |
 |---|---|---|---|
-| Flow, Adquira, Conceito | SysOne | HTML `/busca/venda/tipo_casa/cidade_ponta-grossa/bairro_x/valormax_y/mostrar_100` + anúncio para a galeria | Um conector só (`criarConectorSysOne`). A Adquira usa o tema de card "v3". |
+| Flow, Adquira, Conceito, Taques | SysOne | HTML `/busca/venda/tipo_casa/cidade_ponta-grossa/bairro_x/valormax_y/mostrar_100` + anúncio para a galeria | Um conector só (`criarConectorSysOne`). A Adquira usa o tema de card "v3". |
 | Kikina | CasaSoft | API JSON que o próprio site usa + anúncio para a galeria | |
 | Casa Top | Jetimob (Next.js) | `__NEXT_DATA__` da listagem, que já traz todas as fotos | Não abre anúncio; é a coleta mais rápida. |
 | Clássica | Techbins (Next.js) | Sitemap `/sitemap/property` + dados embutidos no anúncio | O robots.txt proíbe `/api/`, então a listagem não é usada além da 1ª página. Muitos anúncios não publicam área construída. |
+| Montoro | Imobland (mesmo `__NEXT_DATA__` da Casa Top) | `/imoveis?type=Casa&operation=sale&page=N`; os dados e as fotos já vêm na listagem | Não publica logradouro nem área do terreno; vários anúncios só trazem preço, fotos e bairro. |
 | Madol | Praedium | JSON-LD dos cards em `/imoveis/a-venda/ponta-grossa-pr/{bairro}?pagina=N` + anúncio | Tem WAF com captcha: ritmo de 2 s e no máximo 25 anúncios por busca. Se bloquear, a fonte volta "verificação humana" e as outras seguem. As fotos "exclusivas" (atrás de cadastro) não são coletadas. |
 | Tavarnaro | Kurole | HTML em ISO-8859-1 `/comprar/Ponta-Grossa/{Casa,Sobrado,…}?pag=N` + anúncio | Não publica logradouro. |
 | Aspen | Imonov/si9 | HTML `/filtro2/list/venda/{tipo}/todas/todos/{min}-{max}/todos/todos/{pag}` + anúncio | O site expõe credenciais do si9 no JS público. **Não são usadas.** Vale avisar a imobiliária. |

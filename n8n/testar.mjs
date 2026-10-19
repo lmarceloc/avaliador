@@ -33,7 +33,7 @@ const requisicao = process.argv[2]
         condominio: "indiferente",
         pavimentos: { min: null, max: null },
       },
-      fontes: (process.env.FONTES || "flow,kikina,adquira,conceito,casatop,classica,madol,tavarnaro,aspen").split(","),
+      fontes: (process.env.FONTES || "flow,kikina,adquira,conceito,casatop,classica,madol,tavarnaro,aspen,taques,montoro").split(","),
       atualizar_cache: true,
     };
 

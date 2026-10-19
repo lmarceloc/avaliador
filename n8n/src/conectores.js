@@ -128,7 +128,7 @@ function priorizarDetalhes(imoveis, filtros, avaliar) {
 }
 
 // ======================================================================
-// Plataforma SysOne (Flow, Adquira, Conceito) — HTML server-side
+// Plataforma SysOne (Flow, Adquira, Conceito, Taques) — HTML server-side
 // Busca: /busca/venda/tipo_casa/cidade_ponta-grossa/bairro_orfas/valormin_X/valormax_Y/mostrar_100/pag_2
 // ======================================================================
 
@@ -136,6 +136,7 @@ const SYSONE = {
   flow: { id: "flow", nome: "Flow Imobiliária", base: "https://flowimobiliaria.com.br" },
   adquira: { id: "adquira", nome: "Adquira Imóveis", base: "https://adquiraimoveis.net" },
   conceito: { id: "conceito", nome: "Conceito Imóveis", base: "https://conceitoimoveispg.com.br" },
+  taques: { id: "taques", nome: "Taques Negócios Imobiliários", base: "https://taquesimoveis.com.br" },
 };
 const TIPOS_SYSONE = { casa: ["tipo_casa", "tipo_sobrado"], apartamento: ["tipo_apartamento"], terreno: ["tipo_terreno"] };
 
@@ -610,17 +611,19 @@ const CONECTORES = {
   flow: criarConectorSysOne(SYSONE.flow),
   adquira: criarConectorSysOne(SYSONE.adquira),
   conceito: criarConectorSysOne(SYSONE.conceito),
+  taques: criarConectorSysOne(SYSONE.taques),
   kikina: conectorKikina,
   casatop: conectorCasaTop,
   classica: conectorClassica,
   madol: conectorMadol,
   tavarnaro: conectorTavarnaro,
   aspen: conectorAspen,
+  montoro: conectorMontoro,
   torre_branca: conectorTorreBlanca,
 };
 const NOMES = {
-  flow: SYSONE.flow.nome, adquira: SYSONE.adquira.nome, conceito: SYSONE.conceito.nome, kikina: KIKINA.nome,
-  casatop: CASATOP.nome, classica: CLASSICA.nome, madol: MADOL.nome, tavarnaro: TAVARNARO.nome, aspen: ASPEN.nome,
+  flow: SYSONE.flow.nome, adquira: SYSONE.adquira.nome, conceito: SYSONE.conceito.nome, taques: SYSONE.taques.nome, kikina: KIKINA.nome,
+  casatop: CASATOP.nome, classica: CLASSICA.nome, madol: MADOL.nome, tavarnaro: TAVARNARO.nome, aspen: ASPEN.nome, montoro: MONTORO.nome,
   torre_branca: "Torre Blanca", quintoandar: "QuintoAndar",
 };
 

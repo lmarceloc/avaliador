@@ -118,6 +118,9 @@ const CASATOP = {
   tipos: { casa: ["Casa/Sobrado"], apartamento: ["Apartamento"], terreno: ["Terreno/Lote"] },
 };
 
+/** "Ponta Grossa - PR" → "Ponta Grossa". */
+const semUf = (c) => String(c || "").replace(/\s*-\s*[A-Za-z]{2}$/, "");
+
 function nextData(html) {
   const m = String(html).match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
   if (!m) throw erroLayout("página sem __NEXT_DATA__");
@@ -164,19 +167,20 @@ function imovelCasaTop(p) {
   );
 }
 
-async function conectorCasaTop({ filtros, http, cfg, sinal, log }) {
+// Listagem com os imóveis completos no __NEXT_DATA__ (Casa Top e Montoro): `def` traz base e tipos do site.
+const criarConectorListagemNext = (def, imovelDe) => async function conectorListagemNext({ filtros, http, cfg, sinal, log }) {
   const get = cliente(http, cfg, sinal);
   const vistos = new Map();
   let paginas = 0;
-  for (const tipoSite of [...new Set(filtros.tipos.flatMap((t) => CASATOP.tipos[t] || []))]) {
-    const base = `${CASATOP.base}/imoveis?type=${encodeURIComponent(tipoSite)}&operation=sale&order=price-asc`;
+  for (const tipoSite of [...new Set(filtros.tipos.flatMap((t) => def.tipos[t] || []))]) {
+    const base = `${def.base}/imoveis?type=${encodeURIComponent(tipoSite)}&operation=sale&order=price-asc`;
     const primeira = nextData(await get(base, { headers: { "User-Agent": UA } }));
     paginas++;
     // O filtro exige o nome exato do bairro como o site grava ("Orfãs", "Cará-cará"...): usa a lista da própria página.
     let distritos = [null];
     if (filtros.bairros.length) {
       distritos = (primeira.districts || [])
-        .filter((d) => slug(d.city || "") === "ponta-grossa" && bairroPedido(filtros, d.name))
+        .filter((d) => slug(semUf(d.city)) === "ponta-grossa" && bairroPedido(filtros, d.name))
         .map((d) => d.name);
       if (!distritos.length) continue;
     }
@@ -185,7 +189,7 @@ async function conectorCasaTop({ filtros, http, cfg, sinal, log }) {
       for (let pag = 1; pag <= cfg.max_paginas; pag++) {
         const pp = !distrito && pag === 1 ? primeira : nextData(await get(`${url}&page=${pag}`, { headers: { "User-Agent": UA } }));
         if (distrito || pag > 1) paginas++;
-        for (const p of pp.properties || []) if (p.operation === "sale" && !vistos.has(p.reference)) vistos.set(p.reference, imovelCasaTop(p));
+        for (const p of pp.properties || []) if (p.operation === "sale" && !vistos.has(p.reference)) vistos.set(p.reference, imovelDe(p));
         const info = pp.pageInfo || {};
         if (!info.total || pag >= info.total) break;
       }
@@ -194,9 +198,69 @@ async function conectorCasaTop({ filtros, http, cfg, sinal, log }) {
   const imoveis = [...vistos.values()].filter(
     (i) => i.tipo && filtros.tipos.includes(i.tipo) && slug(i.endereco.cidade) === "ponta-grossa" && bairroPedido(filtros, i.endereco.bairro),
   );
-  log(`casatop: ${imoveis.length} imóveis em ${paginas} páginas (dados e fotos já vêm na listagem)`);
+  log(`${def.id}: ${imoveis.length} imóveis em ${paginas} páginas (dados e fotos já vêm na listagem)`);
   return imoveis;
+};
+
+const conectorCasaTop = criarConectorListagemNext(CASATOP, imovelCasaTop);
+
+// ======================================================================
+// Montoro Imóveis — mesma listagem __NEXT_DATA__ da Casa Top (/imoveis?type=…&operation=sale),
+// com os atributos em outras chaves. Não publica logradouro nem área do terreno.
+// ======================================================================
+
+const MONTORO = {
+  id: "montoro",
+  nome: "Montoro Imóveis",
+  base: "https://montoroimoveis.com.br",
+  contato: "(42) 99147-0703",
+  tipos: { casa: ["Casa"], apartamento: ["Apartamento"], terreno: ["Terreno"] },
+};
+
+function imovelMontoro(p) {
+  const at = (k) => {
+    const a = (p.attributes || []).find((x) => x.key === k);
+    return a ? a.value : null;
+  };
+  const tipo = tipoDeTexto(`${p.type || ""} ${p.subtype || ""}`) || tipoDeTexto(p.title);
+  const fotos = ((p.media && p.media.pictures) || []).map((f) => f.src).filter(Boolean);
+  const construida = ouNulo(area(at("constructed-area"))) ?? ouNulo(area(at("util-area"))) ?? ouNulo(area(at("private-area")));
+  const ref = String(p.reference).replace(/^REF-/, "");
+  // Alguns anúncios não preenchem o bairro, mas o endereço completo vem como "Estrela, Ponta Grossa - PR".
+  const bairroDoEndereco = (String(at("full-address") || "").match(/^(.+?),\s*[^,]+\s-\s[A-Z]{2}$/) || [])[1];
+  const emCondominio = at("em-condominio") === true || at("in-condominium") === true || tipo === "apartamento";
+  return imovelBase(
+    { id: MONTORO.id, nome: MONTORO.nome, contato: MONTORO.contato, informante: null },
+    {
+      id: `montoro-${ref}`,
+      url_anuncio: `${MONTORO.base}/imovel/${encodeURIComponent(ref)}`,
+      titulo: p.title || `${p.subtype || p.type} – ${at("district") || ""}`,
+      tipo,
+      endereco: {
+        logradouro: at("address-street") || null,
+        numero: at("address-number") ? String(at("address-number")) : null,
+        numero_informado: Boolean(at("address-number")),
+        bairro: at("district") || bairroDoEndereco || null,
+        cidade: semUf(at("city")) || "Ponta Grossa",
+        uf: "PR",
+      },
+      area_construida_m2: tipo === "terreno" ? null : construida,
+      area_terreno_m2: tipo === "terreno" ? ouNulo(area(at("total-area"))) ?? ouNulo(area(at("land-area"))) : null,
+      preco_total: ouNulo(at("value")),
+      dormitorios: tipo === "terreno" ? null : ouNulo(at("bedrooms")),
+      suites: tipo === "terreno" ? null : ouNulo(at("suites")),
+      banheiros: tipo === "terreno" ? null : ouNulo(at("bathrooms")),
+      vagas_total: tipo === "terreno" ? null : ouNulo(at("garage")),
+      condominio: emCondominio ? true : null,
+      fotos,
+      foto_capa: fotos[0] || null,
+      data_anuncio: p.created_at ? String(p.created_at).slice(0, 10) : null,
+      detalhe_coletado: true,
+    },
+  );
 }
+
+const conectorMontoro = criarConectorListagemNext(MONTORO, imovelMontoro);
 
 // ======================================================================
 // Clássica Imóveis — plataforma Techbins (Next.js App Router).
