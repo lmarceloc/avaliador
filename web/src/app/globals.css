@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f4f2ee;
+  --surface: #ffffff;
+  --surface-2: #f9f8f5;
+  --ink: #1c1d1f;
+  --ink-2: #55585e;
+  --ink-3: #8a8d93;
+  --line: #e3e0d9;
+  --accent: #1f5f4a;
+  --accent-ink: #ffffff;
+  --accent-soft: #e3efe9;
+  --ok: #1f7a4d;
+  --ok-soft: #e1f2e8;
+  --warn: #9a6400;
+  --warn-soft: #fbefd6;
+  --bad: #b3261e;
+  --bad-soft: #fbe4e2;
+  --info: #3a5a8c;
+  --info-soft: #e5ecf7;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121315;
+    --surface: #1b1c1f;
+    --surface-2: #222327;
+    --ink: #ecebe8;
+    --ink-2: #b4b3ae;
+    --ink-3: #85847f;
+    --line: #2f3034;
+    --accent: #5fb592;
+    --accent-ink: #0d1f18;
+    --accent-soft: #1d3029;
+    --ok: #6cc796;
+    --ok-soft: #1a2e23;
+    --warn: #e2b04f;
+    --warn-soft: #33290f;
+    --bad: #f08a82;
+    --bad-soft: #3a1d1b;
+    --info: #8fb0e3;
+    --info-soft: #1d2638;
+  }
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+@keyframes brilho {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--line) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: brilho 1.4s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}

@@ -1,0 +1,9 @@
+node_modules/
+.next/
+.env*
+!.env.example
+.data/
+*.tsbuildinfo
+__pycache__/
+.DS_Store
+n8n/build/ultimo-teste.json
