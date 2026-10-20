@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element -- fotos vêm de domínios variados das imobiliárias */
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AvaliacaoImovel, Imovel } from "@/lib/contrato";
 import { data, descreverCriterio, enderecoCompleto, m2, moeda, numero, ROTULO_CAMPO, ROTULO_TIPO } from "@/lib/formatar";
 import { ESTADOS_CONSERVACAO, PADROES_ACABAMENTO, rotuloPadrao } from "@/config/avaliacao";
@@ -78,6 +78,10 @@ function Linha({ rotulo, valor }: { rotulo: string; valor: React.ReactNode }) {
 
 const simNao = (v: boolean | null) => (v === null ? "—" : v ? "Sim" : "Não");
 
+/** Só os campos editáveis pela avaliadora: serve para saber se há algo não salvo. */
+const campoEditavel = (a: Partial<AvaliacaoImovel>) =>
+  JSON.stringify([a.estado_conservacao ?? null, a.padrao_acabamento ?? null, a.observacoes ?? null, a.incluido_avaliacao ?? null]);
+
 interface Props {
   imovel: Imovel;
   avaliacao?: AvaliacaoImovel;
@@ -94,18 +98,29 @@ export function DetalheImovel({ imovel: i, avaliacao, onFechar, onSalvar, onAnte
   const [salvando, setSalvando] = useState(false);
   const [mensagem, setMensagem] = useState<string | null>(null);
   const painel = useRef<HTMLDivElement>(null);
+  const alterado = campoEditavel(form) !== campoEditavel(avaliacao ?? {});
+
+  // Pergunta antes de descartar edições (fechar, Esc, clique fora, trocar de imóvel).
+  const podeDescartar = useCallback(
+    () => !alterado || window.confirm("Há alterações não salvas neste imóvel. Descartar?"),
+    [alterado],
+  );
+  const tentarFechar = useCallback(() => podeDescartar() && onFechar(), [podeDescartar, onFechar]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onFechar();
-    window.addEventListener("keydown", onKey);
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     painel.current?.focus();
     return () => {
-      window.removeEventListener("keydown", onKey);
       document.body.style.overflow = overflow;
     };
-  }, [onFechar]);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && tentarFechar();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tentarFechar]);
 
   async function salvar(parcial: Partial<AvaliacaoImovel>): Promise<boolean> {
     const novo = { ...form, ...parcial };
@@ -128,7 +143,7 @@ export function DetalheImovel({ imovel: i, avaliacao, onFechar, onSalvar, onAnte
   const iconeCriterio = { atende: ["✔", "text-ok"], nao_atende: ["✖", "text-bad"], nao_verificado: ["?", "text-warn"] } as const;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/50 backdrop-blur-[2px] sm:items-center sm:p-6" onMouseDown={(e) => e.target === e.currentTarget && onFechar()}>
+    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/50 backdrop-blur-[2px] sm:items-center sm:p-6" onMouseDown={(e) => e.target === e.currentTarget && tentarFechar()}>
       <div
         ref={painel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="titulo-detalhe"
         className="flex max-h-full w-full max-w-6xl flex-col overflow-hidden bg-bg shadow-2xl outline-none sm:rounded-xl"
@@ -139,9 +154,9 @@ export function DetalheImovel({ imovel: i, avaliacao, onFechar, onSalvar, onAnte
             <p className="truncate text-xs text-ink-3">{i.fonte.nome} · coletado em {new Date(i.coletado_em).toLocaleString("pt-BR")}</p>
           </div>
           <div className="flex items-center gap-1">
-            <button type="button" disabled={!onAnterior} onClick={onAnterior} className="rounded-md px-2 py-1 text-ink-2 hover:bg-surface-2 disabled:opacity-30" aria-label="Imóvel anterior">←</button>
-            <button type="button" disabled={!onProximo} onClick={onProximo} className="rounded-md px-2 py-1 text-ink-2 hover:bg-surface-2 disabled:opacity-30" aria-label="Próximo imóvel">→</button>
-            <button type="button" onClick={onFechar} className="ml-2 rounded-md px-2 py-1 text-lg text-ink-2 hover:bg-surface-2" aria-label="Fechar">✕</button>
+            <button type="button" disabled={!onAnterior} onClick={() => podeDescartar() && onAnterior?.()} className="rounded-md px-2 py-1 text-ink-2 hover:bg-surface-2 disabled:opacity-30" aria-label="Imóvel anterior">←</button>
+            <button type="button" disabled={!onProximo} onClick={() => podeDescartar() && onProximo?.()} className="rounded-md px-2 py-1 text-ink-2 hover:bg-surface-2 disabled:opacity-30" aria-label="Próximo imóvel">→</button>
+            <button type="button" onClick={tentarFechar} className="ml-2 rounded-md px-2 py-1 text-lg text-ink-2 hover:bg-surface-2" aria-label="Fechar">✕</button>
           </div>
         </header>
 
