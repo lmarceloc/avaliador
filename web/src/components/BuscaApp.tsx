@@ -352,15 +352,7 @@ export function BuscaApp() {
                     {(resposta.fontes ?? []).filter((f) => f.status === "ok").map((f) => `${f.nome} (${f.itens})`).join(" · ")}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-ink-3">
-                    {incluidos > 0
-                      ? `Exportar ${incluidos} ${incluidos === 1 ? "incluído" : "incluídos"}:`
-                      : "Marque “Incluir na avaliação” para exportar:"}
-                  </span>
-                  <button type="button" disabled={paraExportar.length === 0} onClick={() => exportarCsv(paraExportar, avaliacoes)} className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-2 disabled:opacity-40">CSV</button>
-                  <button type="button" disabled={paraExportar.length === 0} onClick={() => exportarXlsx(paraExportar, avaliacoes)} className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-2 disabled:opacity-40">XLSX</button>
-                </div>
+                {incluidos === 0 && <p className="text-xs text-ink-3">Marque “Incluir na avaliação” para exportar.</p>}
               </div>
 
               {imoveis.length > 0 && (
@@ -430,6 +422,18 @@ export function BuscaApp() {
                 </div>
               )}
             </>
+          )}
+
+          {incluidos > 0 && (
+            <div role="region" aria-label="Exportar planilha" className="sticky bottom-3 z-30 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface/95 px-4 py-3 shadow-lg backdrop-blur">
+              <p className="text-sm">
+                <strong className="text-accent tabular">{incluidos}</strong> {incluidos === 1 ? "imóvel incluído" : "imóveis incluídos"} na avaliação
+              </p>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => exportarCsv(paraExportar, avaliacoes)} className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-2">Exportar CSV</button>
+                <button type="button" onClick={() => exportarXlsx(paraExportar, avaliacoes)} className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-accent-ink hover:brightness-110">Exportar XLSX</button>
+              </div>
+            </div>
           )}
         </main>
       </div>

@@ -58,26 +58,33 @@ function CaixaPlanilha({ incluido, onIncluir }: { incluido: boolean; onIncluir: 
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   return (
-    <label
-      title={erro ?? (incluido ? "Retirar da planilha" : "Incluir na planilha")}
-      className={`absolute left-2 top-2 z-10 flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs font-semibold shadow-sm ${incluido ? "bg-accent text-accent-ink" : "bg-surface/90 text-ink backdrop-blur"} ${erro ? "ring-2 ring-bad" : ""} ${salvando ? "opacity-70" : ""}`}
-    >
-      <input
-        type="checkbox" className="size-4 cursor-pointer accent-[var(--accent)]" checked={incluido} disabled={salvando}
-        onChange={async (e) => {
-          setSalvando(true);
-          setErro(null);
-          try {
-            await onIncluir(e.target.checked);
-          } catch (err) {
-            setErro(`Erro ao salvar: ${(err as Error).message}`);
-          } finally {
-            setSalvando(false);
-          }
-        }}
-      />
-      {incluido ? "Na planilha" : "Planilha"}
-    </label>
+    <>
+      <label
+        title={incluido ? "Retirar da planilha" : "Incluir na planilha"}
+        className={`absolute left-2 top-2 z-10 flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs font-semibold shadow-sm ${incluido ? "bg-accent text-accent-ink" : "bg-surface/90 text-ink backdrop-blur"} ${erro ? "ring-2 ring-bad" : ""} ${salvando ? "opacity-70" : ""}`}
+      >
+        <input
+          type="checkbox" className="size-4 cursor-pointer accent-[var(--accent)]" checked={incluido} disabled={salvando}
+          onChange={async (e) => {
+            setSalvando(true);
+            setErro(null);
+            try {
+              await onIncluir(e.target.checked);
+            } catch (err) {
+              setErro(`Não foi possível salvar: ${(err as Error).message}`);
+            } finally {
+              setSalvando(false);
+            }
+          }}
+        />
+        {incluido ? "Na planilha" : "Planilha"}
+      </label>
+      {erro && (
+        <p role="alert" className="absolute left-2 top-11 z-10 max-w-[calc(100%-1rem)] rounded-md bg-bad-soft px-2 py-1 text-xs font-medium text-bad shadow-sm">
+          {erro}
+        </p>
+      )}
+    </>
   );
 }
 
