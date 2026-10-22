@@ -118,6 +118,70 @@ function imovelBase(fonte, extra) {
   };
 }
 
+// ----------------------------------------------------------------------
+// Texto livre do anúncio (descrição + listas de características). Muitos anúncios só citam
+// piscina, churrasqueira ou a medida do terreno ("Terreno medindo 14x33m") no texto.
+// ----------------------------------------------------------------------
+
+const RE_PISCINA = /piscinas?|\bpool\b/gi;
+const RE_LAZER = /churrasqueiras?|\bbbq\b|barbecue|[áa]rea de lazer|recreation area|(?:espa[çc]o|[áa]rea|varanda) gourmet|gourmet space|sal[ãa]o de festas|quiosques?/gi;
+// "possibilidade de construção de piscina", "espaço para instalação de piscina", "sem piscina"…
+const SO_POTENCIAL = /(?:possibilidade|possibilita|permite|espa[çc]o|prepara[çc][ãa]o|preparad[oa]|projeto|sem|n[ãa]o\s+(?:possui|tem|h[áa])|construir|constru[çc][ãa]o|instala[çc][ãa]o|instalar|implanta[çc][ãa]o|implantar|fazer)\s+(?:(?:de|da|do|para|pra|p\/|a|uma|um|construir|constru[çc][ãa]o|instala[çc][ãa]o|instalar|implanta[çc][ãa]o|implantar|fazer|lazer|ou|e)\s+){0,5}$/i;
+// "Piscina: Não", "Churrasqueira: 0"
+const NEGADO_DEPOIS = /^\s*[:\-–]?\s*(?:n[ãa]o\b|0\b)/i;
+
+/** true se o texto cita o item como existente (descarta "espaço para piscina", "Piscina: Não"). */
+function citaItem(texto, re) {
+  for (const m of texto.matchAll(re)) {
+    const antes = texto.slice(Math.max(0, m.index - 80), m.index);
+    const depois = texto.slice(m.index + m[0].length, m.index + m[0].length + 10);
+    if (!SO_POTENCIAL.test(antes) && !NEGADO_DEPOIS.test(depois)) return true;
+  }
+  return false;
+}
+
+const NUM_AREA = "(\\d{1,3}(?:\\.\\d{3})+(?:,\\d+)?|\\d+(?:[.,]\\d+)?)(?![\\d.,])(?!\\s*m?\\s*[xX×]\\s*\\d)";
+const RE_TERRENO_ROTULO = new RegExp(`[áa]rea\\s+(?:total\\s+)?(?:d[oe]\\s+)?terreno\\s*:?\\s*(?:de\\s+)?(?:aprox\\.?\\s*|aproximadamente\\s+)?${NUM_AREA}`, "gi");
+const RE_TERRENO_M2 = new RegExp(`\\bterreno\\s+(?:total\\s+)?(?:de|com|medindo|possui)?\\s*(?:aprox\\.?\\s*|aproximadamente\\s+|cerca de\\s+)?${NUM_AREA}\\s*(?:m²|m2|mts|metros|m\\b)`, "gi");
+// "14,80m x 23m (340m²)": se a área vier entre parênteses, vale ela (o produto das medidas é aproximado).
+const RE_TERRENO_MEDIDAS = /\b(?:terreno|lote)\b[^.;|\n]{0,60}?(\d+(?:[.,]\d+)?)\s*(?:m|mts|metros)?\s*[xX×]\s*(\d+(?:[.,]\d+)?)\s*(?:m\b|mts|metros)?\s*(?:\(\s*([\d.,]+)\s*m[²2]\s*\))?/gi;
+
+/** Área do terreno citada no texto: "terreno de 462m²", "Área do terreno: 660,00 m²", "terreno medindo 14x33". */
+function terrenoDoTexto(texto) {
+  // "2 terrenos de 462 m2 (14x33) cada": a soma não dá para inferir com segurança.
+  if (/\b(?:\d+|dois|duas|tr[êe]s)\s+(?:terrenos|lotes)\b/i.test(texto)) return null;
+  const citados = [];
+  for (const re of [RE_TERRENO_ROTULO, RE_TERRENO_M2]) for (const m of texto.matchAll(re)) citados.push(area(m[1]));
+  for (const m of texto.matchAll(RE_TERRENO_MEDIDAS)) {
+    const [frente, fundo] = [Number(m[1].replace(",", ".")), Number(m[2].replace(",", "."))];
+    if (frente >= 3 && fundo >= 3 && frente <= 500 && fundo <= 500) citados.push(m[3] ? area(m[3]) : Math.round(frente * fundo * 100) / 100);
+  }
+  const validos = citados.filter((n) => n && n >= 40 && n <= 200000);
+  if (!validos.length) return null;
+  // Valores que não batem entre si (ex.: dois terrenos citados) ficam de fora.
+  return validos.every((n) => Math.abs(n - validos[0]) <= validos[0] * 0.03) ? validos[0] : null;
+}
+
+/**
+ * Completa o imóvel com o que só aparece no texto do anúncio. Pode ser chamada mais de uma vez
+ * (ex.: descrição da API e depois a página): uma citação positiva sempre vale; "Não" só onde estava vazio.
+ * Terreno: só preenche quando a fonte não informou o campo.
+ */
+function lerTextoAnuncio(im, texto) {
+  const t = String(texto || "").replace(/\s+/g, " ");
+  if (t.length < 30) return;
+  if (im.tipo !== "terreno") {
+    const piscina = citaItem(t, RE_PISCINA);
+    const lazer = piscina || citaItem(t, RE_LAZER);
+    im.piscina = piscina || (im.piscina ?? false);
+    im.area_lazer = lazer || (im.area_lazer ?? false);
+  }
+  if (im.tipo !== "apartamento" && im.area_terreno_m2 == null) im.area_terreno_m2 = terrenoDoTexto(t);
+}
+
+/** Atributos booleanos dos sites em Next.js ("pool", "gourmet-space") viram texto para lerTextoAnuncio. */
+const chavesVerdadeiras = (pares) => pares.filter(([, v]) => v === true || v === "True" || v === "true").map(([k]) => String(k).replace(/-/g, " ")).join(" | ");
+
 /** Ordena os candidatos: primeiro os que não reprovam em nenhum critério com os dados do card. */
 function priorizarDetalhes(imoveis, filtros, avaliar) {
   return imoveis
@@ -274,6 +338,12 @@ function aplicarDetalheFlow(im, html) {
   const classificacao = campo("Classificação") || "";
   const temCondominio = /condom[ií]nio/i.test(classificacao) || /<span>Condom[ií]nio<\/span>/i.test(html) || tipo === "apartamento";
   im.condominio = classificacao || tipo === "apartamento" ? temCondominio : im.condominio;
+  // Descrição + dependências + características; para antes dos valores/simulador (o resto da página traz outros imóveis).
+  const ini = html.indexOf("imovelInfoBox");
+  if (ini >= 0) {
+    const fim = html.slice(ini).search(/uniqueBox|Valores de Venda/);
+    lerTextoAnuncio(im, textoPipes(html.slice(ini, fim > 0 ? ini + fim : ini + 20000)));
+  }
   im.detalhe_coletado = true;
 }
 
@@ -366,7 +436,7 @@ function imovelDeApiKikina(r) {
   const total = ouNulo(r.imovelAreaTotal);
   const foto = r.urlFotoPrincipal || null;
 
-  return imovelBase(
+  const im = imovelBase(
     { id: KIKINA.id, nome: KIKINA.nome, contato: KIKINA.contato, informante: corretor },
     {
       id: `kikina-${r.imovelReferencia}`,
@@ -390,6 +460,9 @@ function imovelDeApiKikina(r) {
       _imovelId: r.imovelId,
     },
   );
+  // imovelPontosFortes é a descrição do anúncio ("#13" = quebra de linha).
+  lerTextoAnuncio(im, String(r.imovelPontosFortes || "").replace(/#13/g, " "));
+  return im;
 }
 
 function aplicarDetalheKikina(im, html) {
@@ -427,6 +500,7 @@ function aplicarDetalheKikina(im, html) {
     im.vagas_total = im.vagas_total ?? ouNulo(um(/^garagem$|^vagas?$/));
     im.pavimentos = ouNulo(um(/^pavimentos?$|^andares$/)) ?? im.pavimentos;
   }
+  lerTextoAnuncio(im, textoPipes(bloco));
   im.detalhe_coletado = true;
 }
 
@@ -520,7 +594,7 @@ function imovelDeTorreBlanca(r) {
     : [];
   const capa = r.thumbnail || (r.media_assets?.images?.find((img) => img.cover)?.full) || fotos[0] || null;
 
-  return imovelBase(
+  const im = imovelBase(
     { id: TORRE_BLANCA.id, nome: TORRE_BLANCA.nome, contato: TORRE_BLANCA.contato, informante: attrs.corretor_nome || null },
     {
       id: `torre_branca-${ref}`,
@@ -549,6 +623,9 @@ function imovelDeTorreBlanca(r) {
       codigo_comum: null,
     },
   );
+  const caracteristicas = Array.isArray(attrs.caracteristicas) ? attrs.caracteristicas.join(" | ") : "";
+  lerTextoAnuncio(im, `${r.description || ""} | ${caracteristicas}`);
+  return im;
 }
 
 async function conectorTorreBlanca({ filtros, http, cfg, sinal, log }) {

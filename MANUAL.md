@@ -192,7 +192,7 @@ O campo "Padrão de acabamento" é **um só**: o que a IA sugere e o que você p
 | 2 | Endereço com nº | Anúncio (vazio se a imobiliária não divulga o logradouro) |
 | 3 | Bairro | Anúncio, padronizado |
 | 4 | Área construída (m²) | Anúncio |
-| 5 | Área do terreno (m²) | Anúncio |
+| 5 | Área do terreno (m²) | Anúncio; se o campo não vier preenchido, lido do texto ("terreno de 462 m²", "terreno medindo 14x33") |
 | 6 | Preço total (R$) | Anúncio |
 | 7 | Preço/m² (R$) | Calculado: preço ÷ área construída |
 | 8 | Pavimentos | Anúncio |
@@ -203,15 +203,18 @@ O campo "Padrão de acabamento" é **um só**: o que a IA sugere e o que você p
 | 13 | Vagas cobertas | Anúncio |
 | 14 | Vagas descobertas | Anúncio |
 | 15 | Vagas total | Anúncio |
-| 16 | Padrão de acabamento (VEIU) | Sua análise (ou o anúncio, se vazia) |
-| 17 | Idade | **Fica em branco** — as fontes não publicam; preencha na planilha |
-| 18 | Estado IBAPE | Sua análise (ou o anúncio, se vazia) |
-| 19 | Data do evento | Data em que o anúncio foi publicado no site da imobiliária (dd/mm/aaaa); vazia se a fonte não informa |
-| 20 | Informante | Nome de quem passou a informação (corretor ou atendente do anúncio), quando o site mostra; algumas fontes só mostram o telefone da imobiliária e o campo sai vazio, e você pode preencher à mão |
-| 21 | Contato | Telefone/contato do anúncio |
-| 22 | Fonte de pesquisa | Nome da imobiliária |
-| 23 | Link do anúncio | URL original |
-| 24 | Observações | Sua análise (texto livre da ficha); vazia se não preencheu |
+| 16 | Área de lazer / churrasqueira | Sim / Não, lido da descrição e das características do anúncio (churrasqueira, espaço gourmet, salão de festas, piscina…) |
+| 17 | Piscina | Sim / Não, lido da descrição e das características do anúncio. Conta também a piscina do condomínio. "Espaço/possibilidade para piscina" não conta |
+| 18 | Padrão de acabamento (VEIU) | Sua análise (ou o anúncio, se vazia) |
+| 19 | Idade | **Fica em branco** — as fontes não publicam; preencha na planilha |
+| 20 | Estado IBAPE | Sua análise (ou o anúncio, se vazia): classe A a I |
+| 21 | Depreciação IBAPE (%) | Percentual da classe no Quadro 1 (A = 0,00; B = 0,32; C = 2,52…); vazia se não há classe |
+| 22 | Data do evento | Data em que o anúncio foi publicado no site da imobiliária (dd/mm/aaaa); vazia se a fonte não informa |
+| 23 | Informante | Nome de quem passou a informação (corretor ou atendente do anúncio), quando o site mostra; algumas fontes só mostram o telefone da imobiliária e o campo sai vazio, e você pode preencher à mão |
+| 24 | Contato | Telefone/contato do anúncio |
+| 25 | Fonte de pesquisa | Nome da imobiliária |
+| 26 | Link do anúncio | URL original |
+| 27 | Observações | Sua análise (texto livre da ficha); vazia se não preencheu |
 
 Dados que o anúncio não informa saem como **célula vazia** (nunca zero).
 

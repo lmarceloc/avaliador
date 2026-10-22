@@ -143,7 +143,7 @@ function imovelCasaTop(p) {
   const construida = ouNulo(at("area_util")) ?? ouNulo(at("total-area"));
   const terreno = ouNulo(at("land-area"));
   const emCondominio = Boolean(at("condominio-nome")) || at("em-condominio") === true || tipo === "apartamento";
-  return imovelBase(
+  const im = imovelBase(
     { id: CASATOP.id, nome: CASATOP.nome, contato: CASATOP.contato, informante: null },
     {
       id: `casatop-${p.reference}`,
@@ -165,7 +165,12 @@ function imovelCasaTop(p) {
       detalhe_coletado: true,
     },
   );
+  lerTextoAnuncio(im, textoJetimob(p));
+  return im;
 }
+
+/** Descrição + atributos marcados (piscina, churrasqueira, gourmet-space…) de um imóvel Jetimob. */
+const textoJetimob = (p) => `${p.description || ""} | ${chavesVerdadeiras((p.attributes || []).map((a) => [a.key, a.value]))} | ${p.tags || ""}`;
 
 // Listagem com os imóveis completos no __NEXT_DATA__ (Casa Top e Montoro): `def` traz base e tipos do site.
 const criarConectorListagemNext = (def, imovelDe) => async function conectorListagemNext({ filtros, http, cfg, sinal, log }) {
@@ -229,7 +234,7 @@ function imovelMontoro(p) {
   // Alguns anúncios não preenchem o bairro, mas o endereço completo vem como "Estrela, Ponta Grossa - PR".
   const bairroDoEndereco = (String(at("full-address") || "").match(/^(.+?),\s*[^,]+\s-\s[A-Z]{2}$/) || [])[1];
   const emCondominio = at("em-condominio") === true || at("in-condominium") === true || tipo === "apartamento";
-  return imovelBase(
+  const im = imovelBase(
     { id: MONTORO.id, nome: MONTORO.nome, contato: MONTORO.contato, informante: null },
     {
       id: `montoro-${ref}`,
@@ -258,6 +263,8 @@ function imovelMontoro(p) {
       detalhe_coletado: true,
     },
   );
+  lerTextoAnuncio(im, textoJetimob(p));
+  return im;
 }
 
 const conectorMontoro = criarConectorListagemNext(MONTORO, imovelMontoro);
@@ -319,6 +326,7 @@ function aplicarDetalheClassica(im, html) {
     cidade: String(obj.city || "Ponta Grossa").replace(/\s*-\s*PR$/i, ""),
     uf: "PR",
   };
+  lerTextoAnuncio(im, `${String(obj.description || "").replace(/<[^>]+>/g, " | ")} | ${chavesVerdadeiras(Object.entries(obj))}`);
 }
 
 async function conectorClassica({ filtros, http, cfg, sinal, log }) {
@@ -423,6 +431,10 @@ function aplicarDetalheMadol(im, html) {
     im.vagas_total = ouNulo(antesDe(t, "Vagas? de garagem"));
   }
   im.condominio = im.tipo === "apartamento" || /condom[ií]nio fechado/i.test(t) ? true : null;
+  // Do quadro de cômodos até antes de "Você também pode gostar" (dali para baixo são outros imóveis).
+  const iniTexto = t.indexOf("Cômodos e espaços");
+  const fimTexto = t.indexOf("Você também pode gostar", iniTexto);
+  if (iniTexto >= 0) lerTextoAnuncio(im, t.slice(iniTexto, fimTexto > iniTexto ? fimTexto : iniTexto + 8000));
   im.detalhe_coletado = true;
 }
 
@@ -499,6 +511,10 @@ function aplicarDetalheTavarnaro(im, html) {
     im.vagas_total = ouNulo(antesDe(t, "Garage"));
   }
   if (/\/Condominio\//.test(im.url_anuncio) || im.tipo === "apartamento") im.condominio = true;
+  // Descrição + itens do imóvel/condomínio; depois vem o texto genérico do bairro.
+  const ini = t.indexOf("Descrição do Imóvel");
+  const fim = t.search(/Conheça um pouco mais sobre o bairro|Simule um Financiamento/);
+  if (ini >= 0) lerTextoAnuncio(im, t.slice(ini, fim > ini ? fim : ini + 8000));
   const canonica = (html.match(/<link rel="canonical" href="([^"]+\/\d+)"/) || [])[1];
   if (canonica) im.url_anuncio = canonica;
   im.detalhe_coletado = true;
@@ -585,6 +601,10 @@ function aplicarDetalheAspen(im, html) {
     im.vagas_total = ouNulo(antesDe(t, "Garage"));
   }
   if (im.tipo === "apartamento" || /condom[ií]nio/i.test(im.titulo) || /\/condominio-fechado\//.test(im.url_anuncio)) im.condominio = true;
+  // Descrição + características; "Imóveis similares" em diante são outros anúncios.
+  const ini = t.indexOf("| Descrição |");
+  const fim = t.indexOf("Imóveis similares", ini);
+  if (ini >= 0) lerTextoAnuncio(im, t.slice(ini, fim > ini ? fim : ini + 8000));
   const ogUrl = (html.match(/<meta property="og:url" content="([^"]+)"/) || [])[1];
   if (ogUrl) im.url_anuncio = ogUrl;
   im.detalhe_coletado = true;
