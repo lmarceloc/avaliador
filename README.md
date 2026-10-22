@@ -22,6 +22,19 @@ npm run dev                  # http://localhost:3000
 
 Para ver o estado de erro parcial: `MOCK_FONTES_COM_FALHA=kikina npm run dev`.
 
+## Publicar (Vercel)
+
+O projeto da Vercel (time da Agência Byte, plano Hobby) acompanha `helloagenciabyte-max/avaliador`, branch `main`.
+No Hobby só commits da própria conta da Byte publicam; um push direto de outro autor fica **Blocked**. Por isso:
+
+1. Trabalhe numa branch e abra um pull request para `main`.
+2. Com a conta **helloagenciabyte-max**, faça o merge escolhendo **Create a merge commit**. "Squash and merge" e
+   "Rebase and merge" mantêm o autor original do commit e o deploy é bloqueado de novo.
+3. O merge sai no nome da Byte e a Vercel publica a `main` sozinha.
+
+O workflow do n8n (`n8n/busca-imoveis.workflow.json`) não passa pela Vercel: depois de mudar `n8n/src/`, rode
+`node n8n/build.mjs` e importe o JSON no n8n.
+
 ## Como o front fala com o backend
 
 O navegador nunca chama o n8n direto. A chave `X-API-Key` fica só no servidor (seção 9).
