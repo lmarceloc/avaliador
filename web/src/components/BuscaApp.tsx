@@ -24,6 +24,8 @@ const LIMITE_POLLING_MS = 5 * 60 * 1000;
 type Estado = "ocioso" | "carregando" | "pronto" | "erro";
 type Ordem = "padrao" | "preco" | "area" | "preco_m2" | "data";
 type FiltroStatus = "todos" | "atende" | "nao_atende" | "repetido" | "outlier";
+/** "selecionados": só os marcados para a planilha — exatamente o que vai para a exportação. */
+type Aba = "todos" | "selecionados";
 
 interface Rapidos {
   tipo: TipoImovel | "";
@@ -112,6 +114,7 @@ export function BuscaApp() {
   const [repetindo, setRepetindo] = useState<string | null>(null);
   const [avaliacoes, setAvaliacoes] = useState<Record<string, AvaliacaoImovel>>({});
   const [rapidos, setRapidos] = useState<Rapidos>(RAPIDOS_INICIAIS);
+  const [aba, setAba] = useState<Aba>("todos");
   const [ordem, setOrdem] = useState<Ordem>("padrao");
   const [crescente, setCrescente] = useState(true);
   const [aberto, setAberto] = useState<string | null>(null);
@@ -135,6 +138,7 @@ export function BuscaApp() {
     setResposta(null);
     setProgresso(fontesIniciais(fontes));
     setRapidos(RAPIDOS_INICIAIS);
+    setAba("todos");
     setFiltrosAbertosMobile(false);
     try {
       const r = await executarBusca(
@@ -201,10 +205,12 @@ export function BuscaApp() {
   );
 
   const imoveis = useMemo(() => resposta?.imoveis ?? [], [resposta]);
+  const paraExportar = useMemo(() => selecionarParaExportar(imoveis, avaliacoes), [imoveis, avaliacoes]);
 
   const visiveis = useMemo(() => {
     const r = rapidos;
-    const lista = imoveis.filter((i) => {
+    // Na aba de selecionados os filtros rápidos não se aplicam: mostra tudo o que vai para a planilha.
+    const lista = aba === "selecionados" ? paraExportar : imoveis.filter((i) => {
       const reprovado = i.criterios.some((c) => c.resultado === "nao_atende");
       if (!r.mostrarFora && reprovado && r.status !== "nao_atende") return false;
       if (r.tipo && i.tipo !== r.tipo) return false;
@@ -233,7 +239,7 @@ export function BuscaApp() {
       if (ordem === "padrao") return Number(b.atende) - Number(a.atende) || cmp(a.preco_m2, b.preco_m2, true);
       return cmp(chave[ordem](a), chave[ordem](b), crescente);
     });
-  }, [imoveis, rapidos, ordem, crescente]);
+  }, [imoveis, paraExportar, aba, rapidos, ordem, crescente]);
 
   const ocultosForaDoFiltro = useMemo(
     () => (rapidos.mostrarFora ? 0 : imoveis.filter((i) => i.criterios.some((c) => c.resultado === "nao_atende")).length),
@@ -249,11 +255,10 @@ export function BuscaApp() {
   const imovelAberto = indiceAberto >= 0 ? visiveis[indiceAberto] : imoveis.find((i) => i.id === aberto);
   const fecharDetalhe = useCallback(() => setAberto(null), []);
 
-  const paraExportar = selecionarParaExportar(imoveis, avaliacoes);
   const incluidos = paraExportar.length;
   const idsVisiveis = new Set(visiveis.map((i) => i.id));
   // Incluídos que os filtros rápidos da tela estão escondendo (continuam indo para a planilha).
-  const incluidosOcultos = paraExportar.filter((i) => !idsVisiveis.has(i.id)).length;
+  const incluidosOcultos = aba === "selecionados" ? 0 : paraExportar.filter((i) => !idsVisiveis.has(i.id)).length;
   const falhas = (resposta?.fontes ?? []).filter((f) => f.status === "erro");
   const selCls = "rounded-md border border-line bg-surface px-2 py-1.5 text-sm";
 
@@ -356,7 +361,23 @@ export function BuscaApp() {
               </div>
 
               {imoveis.length > 0 && (
+                <div role="tablist" aria-label="Resultados" className="flex gap-1 border-b border-line">
+                  {([["todos", `Todos (${imoveis.length})`], ["selecionados", `Selecionados (${incluidos})`]] as const).map(([id, rotulo]) => (
+                    <button
+                      key={id} type="button" role="tab" aria-selected={aba === id} onClick={() => setAba(id)}
+                      className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${aba === id ? "border-accent text-ink" : "border-transparent text-ink-2 hover:text-ink"}`}
+                    >
+                      {rotulo}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {imoveis.length > 0 && (
                 <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface p-3">
+                  {aba === "selecionados" ? (
+                    <p className="text-sm text-ink-2">Só os imóveis marcados para a planilha. Desmarcar “Na planilha” tira o imóvel daqui.</p>
+                  ) : (<>
                   <select aria-label="Tipo" className={selCls} value={rapidos.tipo} onChange={(e) => setRapidos({ ...rapidos, tipo: e.target.value as TipoImovel | "" })}>
                     <option value="">Todos os tipos</option>
                     {(Object.keys(ROTULO_TIPO) as TipoImovel[]).map((t) => <option key={t} value={t}>{ROTULO_TIPO[t]}</option>)}
@@ -385,6 +406,7 @@ export function BuscaApp() {
                     <input type="checkbox" className="size-4 accent-[var(--accent)]" checked={rapidos.mostrarFora} onChange={(e) => setRapidos({ ...rapidos, mostrarFora: e.target.checked })} />
                     Mostrar fora do filtro{ocultosForaDoFiltro > 0 && ` (${ocultosForaDoFiltro})`}
                   </label>
+                  </>)}
                   <div className="ml-auto flex items-center gap-1">
                     <select aria-label="Ordenar por" className={selCls} value={ordem} onChange={(e) => setOrdem(e.target.value as Ordem)}>
                       <option value="padrao">Ordem: atende primeiro, preço/m²</option>
@@ -402,7 +424,12 @@ export function BuscaApp() {
                 </div>
               )}
 
-              {visiveis.length === 0 ? (
+              {visiveis.length === 0 && aba === "selecionados" ? (
+                <div className="rounded-lg border border-dashed border-line bg-surface p-10 text-center">
+                  <p className="font-semibold">Nenhum imóvel selecionado.</p>
+                  <p className="mt-1 text-sm text-ink-2">Marque a caixinha “Planilha” nos cards da aba Todos.</p>
+                </div>
+              ) : visiveis.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-line bg-surface p-10 text-center">
                   <p className="font-semibold">Nenhum imóvel atende aos critérios.</p>
                   <p className="mt-1 text-sm text-ink-2">
@@ -430,6 +457,11 @@ export function BuscaApp() {
                 <strong className="text-accent tabular">{incluidos}</strong> {incluidos === 1 ? "imóvel incluído" : "imóveis incluídos"} na avaliação
               </p>
               <div className="flex items-center gap-2">
+                {estado === "pronto" && (
+                  <button type="button" onClick={() => setAba(aba === "todos" ? "selecionados" : "todos")} className="hidden whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium text-accent hover:bg-surface-2 sm:block">
+                    {aba === "todos" ? "Ver selecionados" : "Ver todos"}
+                  </button>
+                )}
                 <button type="button" onClick={() => exportarCsv(paraExportar, avaliacoes)} className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-2">Exportar CSV</button>
                 <button type="button" onClick={() => exportarXlsx(paraExportar, avaliacoes)} className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-accent-ink hover:brightness-110">Exportar XLSX</button>
               </div>
