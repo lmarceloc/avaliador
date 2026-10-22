@@ -1,13 +1,16 @@
 // Exportação no formato da planilha atual (seção 8).
+import { depreciacaoDe } from "@/config/avaliacao";
 import type { AvaliacaoImovel, Imovel } from "./contrato";
 import { enderecoCompleto } from "./formatar";
 
 const COLUNAS = [
   "Nº", "Endereço com nº", "Bairro", "Área construída (m²)", "Área do terreno (m²)", "Preço total (R$)",
   "Preço/m² (R$)", "Pavimentos", "Condomínio", "Dormitórios", "Suítes", "Banheiros", "Vagas cobertas",
-  "Vagas descobertas", "Vagas total", "Área de lazer / churrasqueira", "Piscina", "Padrão de acabamento (VEIU)", "Idade", "Estado IBAPE", "Data do evento",
+  "Vagas descobertas", "Vagas total", "Área de lazer / churrasqueira", "Piscina", "Padrão de acabamento (VEIU)", "Idade", "Estado IBAPE", "Depreciação IBAPE (%)", "Data do evento",
   "Informante", "Contato", "Fonte de pesquisa", "Link do anúncio", "Observações",
 ];
+// Percentual do Quadro 1 do IBAPE: sempre com duas casas ("0,00", "0,32").
+const COL_DEPRECIACAO = COLUNAS.indexOf("Depreciação IBAPE (%)");
 
 type Linha = (string | number | null)[];
 
@@ -15,6 +18,7 @@ function linhas(imoveis: Imovel[], avaliacoes: Record<string, AvaliacaoImovel>):
   return imoveis.map((i, n) => {
     const a = avaliacoes[i.id];
     const bool = (v: boolean | null) => (v === null ? null : v ? "Sim" : "Não");
+    const estado = a?.estado_conservacao || i.estado_conservacao_anuncio;
     return [
       n + 1,
       i.endereco.logradouro ? enderecoCompleto(i) : null,
@@ -35,7 +39,8 @@ function linhas(imoveis: Imovel[], avaliacoes: Record<string, AvaliacaoImovel>):
       bool(i.piscina ?? null),
       a?.padrao_acabamento || i.padrao_acabamento_anuncio,
       null, // idade: não publicada pelas fontes; preenchida pela avaliadora
-      a?.estado_conservacao || i.estado_conservacao_anuncio,
+      estado,
+      depreciacaoDe(estado),
       i.data_anuncio ? i.data_anuncio.split("-").reverse().join("/") : null,
       i.fonte.informante,
       i.fonte.contato,
@@ -67,7 +72,8 @@ export function exportarCsv(imoveis: Imovel[], avaliacoes: Record<string, Avalia
     return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   // Separador ";" e BOM para o Excel em português abrir direto.
-  const csv = [COLUNAS, ...linhas(imoveis, avaliacoes)].map((l) => l.map(esc).join(";")).join("\r\n");
+  const celula = (v: string | number | null, c: number) => (c === COL_DEPRECIACAO && typeof v === "number" ? v.toFixed(2).replace(".", ",") : v);
+  const csv = [COLUNAS, ...linhas(imoveis, avaliacoes)].map((l) => l.map((v, c) => esc(celula(v, c))).join(";")).join("\r\n");
   baixar(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }), nomeArquivo("csv"));
 }
 
@@ -75,6 +81,11 @@ export async function exportarXlsx(imoveis: Imovel[], avaliacoes: Record<string,
   const XLSX = await import("xlsx");
   const planilha = XLSX.utils.aoa_to_sheet([COLUNAS, ...linhas(imoveis, avaliacoes)]);
   planilha["!cols"] = COLUNAS.map((c) => ({ wch: Math.max(10, c.length + 2) }));
+  // Número com formato 0,00 (continua somável no Excel).
+  for (let r = 1; r <= imoveis.length; r++) {
+    const cel = planilha[XLSX.utils.encode_cell({ r, c: COL_DEPRECIACAO })];
+    if (cel && cel.t === "n") cel.z = "0.00";
+  }
   const livro = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(livro, planilha, "Pesquisa");
   const dados = XLSX.write(livro, { type: "array", bookType: "xlsx" });
