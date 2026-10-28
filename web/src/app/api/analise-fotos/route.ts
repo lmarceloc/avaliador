@@ -3,6 +3,7 @@
 import { analisarFotos, lerConfig } from "@/server/analise-fotos";
 import { lerConfigJev, triarAnalise, type TipoImovelTriagem } from "@/server/triagem-jev";
 import { aprovarAnalise, armazenamento, armazenamentoTriagem, urlPermitida } from "@/server/analise-armazenamento";
+import { sessaoAtual } from "@/server/sessao-atual";
 
 export const maxDuration = 120;
 
@@ -46,7 +47,7 @@ export async function PATCH(request: Request) {
   const c = (await request.json().catch(() => null)) as { analise_id?: string; imovel_id?: string } | null;
   if (!c?.analise_id || !c.imovel_id) return Response.json({ mensagem: "analise_id e imovel_id são obrigatórios" }, { status: 400 });
   try {
-    await aprovarAnalise(c.analise_id, c.imovel_id, process.env.APP_USUARIO || null);
+    await aprovarAnalise(c.analise_id, c.imovel_id, (await sessaoAtual())?.email ?? null);
     return Response.json({ ok: true });
   } catch (e) {
     return Response.json({ mensagem: (e as Error).message }, { status: 500 });

@@ -13,7 +13,7 @@ const textoValidade = (expiraEm: string) => {
 };
 
 /** Janela modal simples: Esc e clique fora fecham. */
-function Dialogo({ titulo, onFechar, children }: { titulo: string; onFechar: () => void; children: React.ReactNode }) {
+export function Dialogo({ titulo, onFechar, children }: { titulo: string; onFechar: () => void; children: React.ReactNode }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onFechar();
     window.addEventListener("keydown", onKey);

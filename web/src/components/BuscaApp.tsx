@@ -123,7 +123,8 @@ function novaRequisicao(filtros: Filtros, fontes: string[], atualizar: boolean):
 const fontesIniciais = (ids: string[]): FonteResumo[] =>
   ids.map((id) => ({ id, nome: nomeFonte(id), status: "buscando", itens: 0 }));
 
-export function BuscaApp() {
+/** menuUsuario: nome de quem está logado, com "Trocar senha" e "Sair" (vazio quando o site roda sem login). */
+export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
   const [filtros, setFiltros] = useState<Filtros>(FILTROS_VAZIOS);
   const [fontes, setFontes] = useState<string[]>(FONTES_ATIVAS.map((f) => f.id));
   const [estado, setEstado] = useState<Estado>("ocioso");
@@ -454,6 +455,7 @@ export function BuscaApp() {
           >
             Pesquisas salvas{pesquisas.length > 0 && <span className="ml-1 text-ink-3">({pesquisas.length})</span>}
           </button>
+          {menuUsuario}
           <button
             type="button" onClick={() => setFiltrosAbertosMobile(true)}
             className="rounded-md border border-line px-3 py-1.5 text-sm font-medium lg:hidden"

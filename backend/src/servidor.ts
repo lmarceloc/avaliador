@@ -6,6 +6,7 @@ import { aprovarAnalise, gravarAnalise, gravarLogs, gravarTriagens } from "./ana
 import { listarAvaliacoes, salvarAvaliacao } from "./avaliacoes";
 import { consultarBusca, iniciarBusca } from "./buscas";
 import { alterarPesquisa, criarPesquisa, ErroPesquisa, excluirPesquisa, lerPesquisa, listarPesquisas, marcarImovel } from "./pesquisas";
+import { autenticar, ErroUsuario, trocarSenha } from "./usuarios";
 import type { ResultadoColeta } from "./coleta";
 import type { Db } from "./db";
 
@@ -97,6 +98,15 @@ async function rotear(req: http.IncomingMessage, deps: DepsServidor): Promise<[n
       else break;
       return [201, { ok: true }];
     }
+    case "POST /auth/:": {
+      // POST /auth/login { email, senha } → { id, email, nome }. O site cria a sessão; o backend só confere.
+      // POST /auth/senha { email, senha_atual, senha_nova }
+      const c = (await lerJson(req)) as { email?: unknown; senha?: unknown; senha_atual?: unknown; senha_nova?: unknown } | null;
+      if (partes[1] === "login") return [200, await autenticar(db, c?.email, c?.senha)];
+      if (partes[1] !== "senha") break;
+      await trocarSenha(db, c?.email, c?.senha_atual, c?.senha_nova);
+      return [200, { ok: true }];
+    }
     case "GET /pesquisas":
       return [200, await listarPesquisas(db)];
     case "POST /pesquisas":
@@ -139,7 +149,7 @@ export function criarServidor(deps: DepsServidor): http.Server {
       const [codigo, corpo] = await rotear(req, deps);
       enviar(res, codigo, corpo);
     } catch (e) {
-      if (e instanceof ErroHttp || e instanceof ErroPesquisa) return enviar(res, e.codigo, { mensagem: e.message });
+      if (e instanceof ErroHttp || e instanceof ErroPesquisa || e instanceof ErroUsuario) return enviar(res, e.codigo, { mensagem: e.message });
       // Erro do Postgres (ex.: violação de check) vira 500 com a mensagem; não há dado sensível nela.
       deps.log?.(`${req.method} ${req.url}: ${(e as Error).message}`);
       enviar(res, 500, { mensagem: (e as Error).message });

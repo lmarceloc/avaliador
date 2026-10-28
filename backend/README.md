@@ -11,6 +11,7 @@ src/coleta.ts       roda os conectores e o pipeline de web/src/lib/regras.ts
 src/conectores.js   conectores das 12 imobiliárias (mesmo código que rodava no nó Code do n8n)
 src/avaliacoes.ts   análise da avaliadora
 src/analises.ts     registros da sugestão por fotos (analises_foto, logs, triagens do Jev)
+src/usuarios.ts     usuários do site: hash scrypt, login com bloqueio, cadastro
 src/pesquisas.ts    pesquisas salvas (nome + resultados + seleção, 30 dias); regras em web/src/lib/pesquisas.ts
 sql/                migrações, aplicadas sozinhas na subida (tabela schema_migracoes)
 scripts/            importar-supabase.ts (cópia única dos dados) e testar-coleta.ts
@@ -26,6 +27,8 @@ scripts/            importar-supabase.ts (cópia única dos dados) e testar-cole
 | `GET /avaliacoes` · `PUT /avaliacoes` | Lista e grava a análise da avaliadora. |
 | `POST /analises-foto` · `/analises-foto/logs` · `/analises-foto/triagens` | Grava a sugestão por fotos. |
 | `POST /analises-foto/:id/aprovar` | Marca a sugestão como aprovada. |
+| `POST /auth/login` | `{ email, senha }` → `{ id, email, nome }` ou `401`. 5 erros seguidos bloqueiam o e-mail por 15 min (`429`). |
+| `POST /auth/senha` | `{ email, senha_atual, senha_nova }` (mínimo 8 caracteres). |
 | `GET /pesquisas` · `POST /pesquisas` | Lista as pesquisas salvas; cria uma a partir de uma busca concluída (`{ nome, requisicao_id, extras?, selecao? }`). |
 | `GET /pesquisas/:id` · `PATCH` · `DELETE` | Abre (resultados + seleção); renomeia ou troca os resultados (`substituir` / `juntar`); apaga. |
 | `PUT /pesquisas/:id/selecao` | `{ imovel_id, incluido: true \| false \| null }`. Toda alteração renova os 30 dias. |
@@ -63,6 +66,21 @@ e o front para de esperar.
    **Redeploy**.
 6. Faça uma busca no site. Funcionando, **desative o workflow** "Busca de Imóveis" no n8n. O Supabase pode ficar
    pausado como cópia de segurança por um tempo e ser apagado depois.
+
+## Usuários
+
+Os usuários do site ficam na tabela `usuarios` (e-mail, nome, hash scrypt da senha, ativo). Por enquanto o cadastro é pelo
+**Console** do serviço backend no EasyPanel:
+
+```
+node dist/usuarios.mjs criar carina@exemplo.com "Carina Souza"   # mostra a senha gerada; a pessoa troca no site
+node dist/usuarios.mjs listar
+node dist/usuarios.mjs senha carina@exemplo.com                  # gera e mostra uma senha nova
+node dist/usuarios.mjs desativar carina@exemplo.com              # não entra mais (sessão aberta vale até vencer, 7 dias)
+node dist/usuarios.mjs ativar carina@exemplo.com
+```
+
+Para derrubar todas as sessões na hora (ex.: senha vazada), troque `SESSAO_SEGREDO` na Vercel e faça Redeploy.
 
 ## Desenvolvimento
 

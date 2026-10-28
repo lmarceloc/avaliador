@@ -11,6 +11,7 @@ import { encerrarBuscasInterrompidas, limparBuscasExpiradas } from "../src/busca
 import { executarColeta, type ResultadoColeta } from "../src/coleta";
 import { criarPool, migrar } from "../src/db";
 import { criarServidor } from "../src/servidor";
+import { autenticar, conferirSenha, criarUsuario, definirAtivo, gerarHash, redefinirSenha } from "../src/usuarios";
 
 const URL_TESTE = process.env.DATABASE_URL_TESTE;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -91,7 +92,7 @@ describe("backend", { skip: !URL_TESTE && "defina DATABASE_URL_TESTE para rodar 
   });
 
   test("migrações aplicam uma vez só", async () => {
-    assert.deepEqual(await migrar(pool), ["001_inicial.sql", "002_pesquisas_salvas.sql"]);
+    assert.deepEqual(await migrar(pool), ["001_inicial.sql", "002_pesquisas_salvas.sql", "003_usuarios.sql"]);
     assert.deepEqual(await migrar(pool), []);
   });
 
@@ -360,5 +361,55 @@ describe("backend", { skip: !URL_TESTE && "defina DATABASE_URL_TESTE para rodar 
     assert.ok(!(await json(await chamar("/pesquisas"))).some((x: { id: string }) => x.id === p.id));
     assert.equal((await chamar(`/pesquisas/${p.id}`)).status, 404);
     assert.equal((await criar({ nome: "vencida", requisicao_id: id })).status, 201, "o nome fica livre");
+  });
+  test("usuários: hash scrypt, login por e-mail, troca de senha e desativação", async () => {
+    const hash = await gerarHash("segredo-123");
+    assert.match(hash, /^scrypt\$16384\$8\$1\$/);
+    assert.ok(!hash.includes("segredo-123"));
+    assert.ok(await conferirSenha("segredo-123", hash));
+    assert.ok(!(await conferirSenha("segredo-124", hash)));
+
+    await criarUsuario(pool, " Carina@Exemplo.com ", "Carina Souza", "senha-inicial");
+    await assert.rejects(criarUsuario(pool, "carina@exemplo.com", "Outra", "senha-inicial"), /Já existe/);
+    await assert.rejects(criarUsuario(pool, "sem-arroba", "X", "senha-inicial"), /E-mail inválido/);
+    await assert.rejects(criarUsuario(pool, "curta@exemplo.com", "X", "1234567"), /8 caracteres/);
+
+    const login = (email: string, senha: string) => chamar("/auth/login", { method: "POST", body: JSON.stringify({ email, senha }) });
+    let r = await login("CARINA@exemplo.com", "senha-inicial");
+    assert.equal(r.status, 200);
+    const u = await json(r);
+    assert.deepEqual({ email: u.email, nome: u.nome }, { email: "carina@exemplo.com", nome: "Carina Souza" });
+    assert.equal(u.senha_hash, undefined, "o hash nunca sai do backend");
+    assert.ok((await pool.query("select ultimo_login from usuarios where email = 'carina@exemplo.com'")).rows[0].ultimo_login);
+
+    r = await login("carina@exemplo.com", "errada");
+    assert.equal(r.status, 401);
+    assert.equal((await json(r)).mensagem, "E-mail ou senha inválidos");
+    assert.equal((await login("ninguem@exemplo.com", "qualquer")).status, 401, "mesma resposta para e-mail inexistente");
+
+    const trocar = (senha_atual: string, senha_nova: string) =>
+      chamar("/auth/senha", { method: "POST", body: JSON.stringify({ email: "carina@exemplo.com", senha_atual, senha_nova }) });
+    assert.equal((await trocar("senha-inicial", "curta")).status, 400);
+    assert.equal((await trocar("errada", "nova-senha-123")).status, 401);
+    assert.equal((await trocar("senha-inicial", "nova-senha-123")).status, 200);
+    assert.equal((await login("carina@exemplo.com", "senha-inicial")).status, 401);
+    assert.equal((await login("carina@exemplo.com", "nova-senha-123")).status, 200);
+
+    await definirAtivo(pool, "carina@exemplo.com", false);
+    assert.equal((await login("carina@exemplo.com", "nova-senha-123")).status, 401, "desativado não entra");
+    await definirAtivo(pool, "carina@exemplo.com", true);
+    await redefinirSenha(pool, "carina@exemplo.com", "redefinida-1");
+    assert.equal((await login("carina@exemplo.com", "redefinida-1")).status, 200);
+    await assert.rejects(redefinirSenha(pool, "ninguem@exemplo.com", "redefinida-1"), /não encontrado/);
+  });
+
+  test("usuários: 5 erros seguidos bloqueiam por 15 minutos", async () => {
+    await criarUsuario(pool, "marcelo@exemplo.com", "Marcelo", "senha-certa-1");
+    const t0 = Date.now();
+    for (let i = 0; i < 5; i++) await assert.rejects(autenticar(pool, "marcelo@exemplo.com", "errada", t0), /inválidos/);
+    await assert.rejects(autenticar(pool, "marcelo@exemplo.com", "senha-certa-1", t0 + 60_000), /Muitas tentativas/);
+    const r = await chamar("/auth/login", { method: "POST", body: JSON.stringify({ email: "marcelo@exemplo.com", senha: "senha-certa-1" }) });
+    assert.equal(r.status, 429);
+    assert.equal((await autenticar(pool, "marcelo@exemplo.com", "senha-certa-1", t0 + 16 * 60_000)).email, "marcelo@exemplo.com", "passado o bloqueio, entra");
   });
 });
