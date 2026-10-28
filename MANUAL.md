@@ -4,6 +4,16 @@ Este manual explica, para quem usa o sistema no dia a dia, como pesquisar imóve
 
 ---
 
+## 0. Entrar no sistema
+
+O endereço é **https://avaliador.agenciabyte.com**. Entre com o seu **e-mail** e a **senha**. A sessão dura 7 dias; depois disso o sistema pede o login de novo.
+
+- **Trocar a senha:** clique no seu nome, no canto superior direito, e em **Trocar senha**. A senha precisa ter pelo menos 8 caracteres.
+- **Sair:** no mesmo menu, **Sair**.
+- **Esqueceu a senha ou errou 5 vezes seguidas?** Depois de 5 erros o acesso fica bloqueado por 15 minutos. Se não lembrar a senha, peça a quem administra uma senha nova.
+
+---
+
 ## 1. Visão geral do fluxo
 
 1. Você escolhe os **filtros** e as **fontes** (imobiliárias) no painel da esquerda e clica em **Pesquisar**.
@@ -285,7 +295,7 @@ Dados que o anúncio não informa saem como **célula vazia** (nunca zero).
 | `JEV_TIMEOUT_MS` | Tempo máximo por tentativa do Jev | 20000 |
 | `JEV_BASE_URL` | Gateway opcional do Jev | padrão do SDK |
 | `LOG_RESPOSTA_BRUTA` | `true` grava a resposta bruta dos modelos (só depuração) | `false` |
-| `APP_USUARIO`, `APP_SENHA` | Se definidos, o site pede login e senha (Basic Auth) | — |
+| `SESSAO_SEGREDO` | Assina o login (cookie de sessão de 7 dias). Obrigatório com backend; trocar desloga todo mundo | — |
 | `BACKEND_URL`, `BACKEND_API_KEY` | Endereço e chave do backend da VPS (busca e banco) | — |
 
 Mais detalhes em `web/.env.example` e `backend/README.md`.

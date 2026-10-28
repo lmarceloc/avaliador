@@ -14,3 +14,4 @@ const comum = {
 
 await build({ ...comum, entryPoints: ["src/index.ts"], outfile: "dist/servidor.mjs" });
 await build({ ...comum, entryPoints: ["scripts/importar-supabase.ts"], outfile: "dist/importar-supabase.mjs" });
+await build({ ...comum, entryPoints: ["scripts/usuarios.ts"], outfile: "dist/usuarios.mjs" });

@@ -52,6 +52,18 @@ O navegador nunca chama o backend direto. A chave `X-API-Key` (`BACKEND_API_KEY`
 Se o backend não responder, as rotas devolvem `502` com a mensagem "O servidor de busca não respondeu",
 que aparece na tela no lugar de um erro genérico.
 
+### Login
+
+Com `BACKEND_URL` configurado o login é obrigatório (`src/proxy.ts`): sem sessão, as páginas vão para `/login` e as rotas
+de API respondem `401`. Os usuários ficam na tabela `usuarios` do Postgres (e-mail, nome, hash scrypt da senha, ativo).
+O backend confere e-mail e senha (`POST /auth/login`, com bloqueio de 15 min após 5 erros seguidos) e o site grava a sessão
+num cookie `HttpOnly`/`Secure`/`SameSite=Lax` assinado com `SESSAO_SEGREDO`, válido por 7 dias. Sem `SESSAO_SEGREDO` o site
+fica fechado (503). No topo, o menu do usuário tem **Trocar senha** e **Sair**.
+
+Cadastro (por enquanto pelo console do backend no EasyPanel; ver [backend/README.md](backend/README.md#usuários)):
+`node dist/usuarios.mjs criar carina@exemplo.com "Carina Souza"` mostra uma senha gerada, que a pessoa troca no site.
+Um cadastro pela tela inicial pode ser ligado depois: a tabela já tem `ativo` para contas aguardando aprovação.
+
 O front aceita os dois modos da seção 6.4. Se o `POST` voltar `status: "processando"`, ele consulta
 `/resultados/:id` a cada 3 s e mostra o progresso por fonte (`fontes[].status` = `buscando` / `ok` / `erro`).
 Se voltar o resultado completo, ele exibe direto.
@@ -213,6 +225,6 @@ npx tsc --noEmit && npx eslint src test
 ## Pontos em aberto que afetam o código
 
 - **Lista de bairros** ([web/src/lib/bairros.ts](web/src/lib/bairros.ts)): é provisória e precisa ser substituída pela oficial.
-- **Autenticação**: hoje é Basic Auth opcional (`APP_USUARIO`/`APP_SENHA`), aplicada no `src/proxy.ts`.
+- **Autenticação**: login por e-mail e senha (seção "Login"). Ainda não há cadastro pela tela nem tela de administração de usuários.
 - **Hospedagem**: o front fica na Vercel; a coleta e o Postgres ficam na VPS (EasyPanel), ver [backend/README.md](backend/README.md).
 - **Coluna "Idade"** da planilha: nenhuma fonte publica esse dado, então ela sai vazia na exportação.
