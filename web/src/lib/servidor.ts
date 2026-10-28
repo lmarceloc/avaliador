@@ -1,29 +1,44 @@
-// Utilitários só do servidor: configuração do n8n, validação da requisição e armazenamento das avaliações.
+// Utilitários só do servidor: acesso ao backend da VPS, validação da requisição e armazenamento das avaliações.
 import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { AvaliacaoImovel, RequisicaoBusca } from "./contrato";
 
-export const n8n = {
-  base: process.env.N8N_BASE_URL?.replace(/\/$/, "") ?? null,
-  apiKey: process.env.N8N_API_KEY ?? "",
+// Backend da VPS (pasta backend/): coleta das imobiliárias e banco Postgres.
+export const backend = {
+  base: process.env.BACKEND_URL?.replace(/\/$/, "") ?? null,
+  apiKey: process.env.BACKEND_API_KEY ?? "",
 };
 
-/** Backend simulado quando não há n8n configurado, ou com FORCAR_MOCK=1 (testes de interface). */
+/** Busca simulada quando não há backend configurado, ou com FORCAR_MOCK=1 (testes de interface). */
 export function usandoMock(): boolean {
-  return !n8n.base || process.env.FORCAR_MOCK === "1";
+  return !backend.base || process.env.FORCAR_MOCK === "1";
 }
 
-export async function chamarN8n(caminho: string, init: RequestInit = {}): Promise<Response> {
-  const resp = await fetch(`${n8n.base}${caminho}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", "X-API-Key": n8n.apiKey, ...init.headers },
-    cache: "no-store",
-    signal: AbortSignal.timeout(120_000),
-  });
-  const corpo = await resp.text();
-  return new Response(corpo || "{}", { status: resp.status, headers: { "Content-Type": "application/json" } });
+/** Repassa a chamada ao backend e devolve status e corpo como vieram. Backend fora do ar vira 502 com mensagem. */
+export async function chamarBackend(caminho: string, init: RequestInit = {}): Promise<Response> {
+  const json = { "Content-Type": "application/json" };
+  try {
+    const resp = await fetch(`${backend.base}${caminho}`, {
+      ...init,
+      headers: { ...json, "X-API-Key": backend.apiKey, ...init.headers },
+      cache: "no-store",
+      signal: AbortSignal.timeout(30_000),
+    });
+    const corpo = await resp.text();
+    return new Response(corpo || "{}", { status: resp.status, headers: json });
+  } catch (e) {
+    const mensagem = `O servidor de busca não respondeu (${(e as Error).message}). Tente de novo em instantes.`;
+    return Response.json({ status: "erro", mensagem }, { status: 502 });
+  }
+}
+
+/** Chama o backend e devolve o JSON; erro do backend vira exceção com a mensagem dele. */
+export async function backendJson<T>(caminho: string, init: RequestInit = {}): Promise<T> {
+  const resp = await chamarBackend(caminho, init);
+  const corpo = (await resp.json().catch(() => ({}))) as { mensagem?: string };
+  if (!resp.ok) throw new Error(corpo.mensagem ?? `O backend respondeu ${resp.status}`);
+  return corpo as T;
 }
 
 /** Regras da seção 5.1. Retorna a mensagem de erro, ou null se a requisição é válida. */
@@ -38,16 +53,7 @@ export function validarRequisicao(r: Partial<RequisicaoBusca>): string | null {
 
 // ---------- Avaliações da avaliadora (seção 7) ----------
 
-let supabase: SupabaseClient | null = null;
-function db(): SupabaseClient | null {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  supabase ??= createClient(url, key, { auth: { persistSession: false } });
-  return supabase;
-}
-
-// Sem Supabase configurado, grava em arquivo local (apenas desenvolvimento).
+// Sem backend configurado, grava em arquivo local (apenas desenvolvimento).
 const ARQUIVO_LOCAL = path.join(process.cwd(), ".data", "avaliacoes.json");
 
 async function lerLocal(): Promise<Record<string, AvaliacaoImovel>> {
@@ -59,11 +65,8 @@ async function lerLocal(): Promise<Record<string, AvaliacaoImovel>> {
 }
 
 export async function listarAvaliacoes(): Promise<AvaliacaoImovel[]> {
-  const cliente = db();
-  if (!cliente) return Object.values(await lerLocal());
-  const { data, error } = await cliente.from("avaliacoes_imovel").select("*");
-  if (error) throw new Error(error.message);
-  return data as AvaliacaoImovel[];
+  if (!backend.base) return Object.values(await lerLocal());
+  return backendJson<AvaliacaoImovel[]>("/avaliacoes");
 }
 
 export async function salvarAvaliacao(a: AvaliacaoImovel): Promise<AvaliacaoImovel> {
@@ -75,19 +78,12 @@ export async function salvarAvaliacao(a: AvaliacaoImovel): Promise<AvaliacaoImov
     incluido_avaliacao: a.incluido_avaliacao ?? null,
     atualizado_em: new Date().toISOString(),
   };
-  const cliente = db();
-  if (!cliente) {
+  if (!backend.base) {
     const todos = await lerLocal();
     todos[registro.imovel_id] = registro;
     await fs.mkdir(path.dirname(ARQUIVO_LOCAL), { recursive: true });
     await fs.writeFile(ARQUIVO_LOCAL, JSON.stringify(todos, null, 2));
     return registro;
   }
-  const { data, error } = await cliente
-    .from("avaliacoes_imovel")
-    .upsert(registro, { onConflict: "imovel_id" })
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-  return data as AvaliacaoImovel;
+  return backendJson<AvaliacaoImovel>("/avaliacoes", { method: "PUT", body: JSON.stringify(registro) });
 }

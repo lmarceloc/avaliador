@@ -4,12 +4,13 @@ Front de busca de comparativos para a avaliadora. Ele reúne numa única grade o
 com fotos, link direto para o anúncio e a verificação de cada filtro.
 
 ```
-web/        Next.js 16 (App Router): front + rotas de API que fazem proxy para o n8n
-supabase/   migrações: fontes, buscas (cache/jobs), avaliacoes_imovel, análise de fotos e triagem do Jev
+web/        Next.js 16 (App Router), na Vercel: front + rotas de API que repassam ao backend
+backend/    serviço Node na VPS (EasyPanel): coleta nas imobiliárias + banco Postgres
+            (buscas com cache de 6 h, avaliacoes_imovel, análise de fotos e triagem do Jev)
 ```
 
-O backend de coleta (workflows do n8n) entra **por último**. Até lá, o front roda contra um backend
-simulado que segue o contrato da seção 5 da especificação.
+Sem `BACKEND_URL`, o front roda contra uma busca simulada que segue o contrato da seção 5 da especificação.
+Como subir o backend: [backend/README.md](backend/README.md).
 
 ## Rodar
 
@@ -32,18 +33,24 @@ No Hobby só commits da própria conta da Byte publicam; um push direto de outro
    "Rebase and merge" mantêm o autor original do commit e o deploy é bloqueado de novo.
 3. O merge sai no nome da Byte e a Vercel publica a `main` sozinha.
 
-O workflow do n8n (`n8n/busca-imoveis.workflow.json`) não passa pela Vercel: depois de mudar `n8n/src/`, rode
-`node n8n/build.mjs` e importe o JSON no n8n.
+O backend da VPS não passa pela Vercel: o EasyPanel gera a imagem a partir do mesmo repositório
+(`backend/Dockerfile`). Depois de mudar `backend/` **ou `web/src/lib/`** (as regras vão embutidas no backend),
+faça **Deploy** no serviço backend do EasyPanel, ou ligue o deploy automático dele. Passo a passo em
+[backend/README.md](backend/README.md).
 
 ## Como o front fala com o backend
 
-O navegador nunca chama o n8n direto. A chave `X-API-Key` fica só no servidor (seção 9).
+O navegador nunca chama o backend direto. A chave `X-API-Key` (`BACKEND_API_KEY`) fica só no servidor (seção 9).
 
-| Rota do app | Com `N8N_BASE_URL` | Sem `N8N_BASE_URL` (simulado) |
+| Rota do app | Com `BACKEND_URL` | Sem `BACKEND_URL` (simulado) |
 |---|---|---|
-| `POST /api/buscar` | `POST {n8n}/webhook/buscar-imoveis` | `src/lib/mock.ts` |
-| `GET /api/resultados/:id` | `GET {n8n}/webhook/resultados/:id` | `src/lib/mock.ts` |
-| `GET/PUT /api/avaliacoes` | tabela `avaliacoes_imovel` (Supabase) | `.data/avaliacoes.json` |
+| `POST /api/buscar` | `POST {backend}/buscas` | `src/lib/mock.ts` |
+| `GET /api/resultados/:id` | `GET {backend}/buscas/:id` | `src/lib/mock.ts` |
+| `GET/PUT /api/avaliacoes` | `GET/PUT {backend}/avaliacoes` | `.data/avaliacoes.json` |
+| `POST/PATCH /api/analise-fotos` | grava em `{backend}/analises-foto…` | `.data/*.json` |
+
+Se o backend não responder, as rotas devolvem `502` com a mensagem "O servidor de busca não respondeu",
+que aparece na tela no lugar de um erro genérico.
 
 O front aceita os dois modos da seção 6.4. Se o `POST` voltar `status: "processando"`, ele consulta
 `/resultados/:id` a cada 3 s e mostra o progresso por fonte (`fontes[].status` = `buscando` / `ok` / `erro`).
@@ -54,8 +61,7 @@ Se voltar o resultado completo, ele exibe direto.
 As regras ficam em [web/src/lib/regras.ts](web/src/lib/regras.ts), em funções puras e sem dependências:
 normalização, preço/m², avaliação dos critérios (`atende` / `nao_atende` / `nao_verificado`), deduplicação
 por código comum ou endereço + área + preço (±1%) e outliers (1,5 desvio padrão da mediana).
-O backend simulado já usa essas funções. Ao montar o n8n, o pipeline `processarImoveis()` pode ser colado
-num nó **Code** depois do "Juntar resultados".
+A busca simulada e o backend da VPS usam essas mesmas funções: o build do backend embute este arquivo.
 
 ## Modo de usar
 
@@ -179,7 +185,6 @@ Nunca coloque chaves no código nem no front. `.env.local` não vai para o git.
 
 - **Valor Sisdia:** os padrões 2.1, 2.2, 2.6 e 2.8 ainda não têm valor confirmado e aparecem como "a confirmar"
   (o valor 1 da escala também não tem padrão associado). Mapeados: 2.3→0, 2.4→2, 2.5→3, 2.7→4.
-- **Migrações do Supabase:** aplicar `20261015120000_analise_fotos.sql` e `20261015130000_triagens_jev.sql`.
 - **Limites da triagem:** os valores padrão (0,5 / 0,5 / 3) são pontos de partida e precisam ser calibrados com casos reais.
 
 ### Testes
@@ -194,5 +199,5 @@ npx tsc --noEmit && npx eslint src test
 
 - **Lista de bairros** ([web/src/lib/bairros.ts](web/src/lib/bairros.ts)): é provisória e precisa ser substituída pela oficial.
 - **Autenticação**: hoje é Basic Auth opcional (`APP_USUARIO`/`APP_SENHA`), aplicada no `src/proxy.ts`.
-- **Hospedagem**: o app é um Next.js padrão e roda tanto na Vercel quanto num container no EasyPanel (`npm run build && npm start`).
+- **Hospedagem**: o front fica na Vercel; a coleta e o Postgres ficam na VPS (EasyPanel), ver [backend/README.md](backend/README.md).
 - **Coluna "Idade"** da planilha: nenhuma fonte publica esse dado, então ela sai vazia na exportação.

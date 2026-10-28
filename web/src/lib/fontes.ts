@@ -1,4 +1,4 @@
-// Cadastro de fontes (seção 6.2). Espelha a tabela `fontes` do Supabase.
+// Cadastro de fontes (seção 6.2). Os ids precisam existir em NOMES de backend/src/conectores.js.
 export interface Fonte {
   id: string;
   nome: string;

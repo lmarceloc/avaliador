@@ -272,5 +272,6 @@ Dados que o anúncio não informa saem como **célula vazia** (nunca zero).
 | `JEV_BASE_URL` | Gateway opcional do Jev | padrão do SDK |
 | `LOG_RESPOSTA_BRUTA` | `true` grava a resposta bruta dos modelos (só depuração) | `false` |
 | `APP_USUARIO`, `APP_SENHA` | Se definidos, o site pede login e senha (Basic Auth) | — |
+| `BACKEND_URL`, `BACKEND_API_KEY` | Endereço e chave do backend da VPS (busca e banco) | — |
 
-Mais detalhes em `web/.env.example` e `n8n/README.md`.
+Mais detalhes em `web/.env.example` e `backend/README.md`.

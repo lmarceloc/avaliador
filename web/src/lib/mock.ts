@@ -1,5 +1,5 @@
-// Backend simulado: imita o n8n seguindo o contrato da seção 5 enquanto os workflows não existem.
-// Ativo quando N8N_BASE_URL não está definido. Nada aqui é dado real.
+// Busca simulada: imita o backend seguindo o contrato da seção 5, para rodar o front sem a VPS.
+// Ativo quando BACKEND_URL não está definido. Nada aqui é dado real.
 
 import type { FonteResumo, Imovel, RequisicaoBusca, RespostaBusca, TipoImovel } from "./contrato";
 import { nomeFonte } from "./fontes";
