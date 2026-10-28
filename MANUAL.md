@@ -9,7 +9,8 @@ Este manual explica, para quem usa o sistema no dia a dia, como pesquisar imóve
 1. Você escolhe os **filtros** e as **fontes** (imobiliárias) no painel da esquerda e clica em **Pesquisar**.
 2. O sistema coleta os anúncios nos sites, junta os repetidos e confere cada imóvel contra os seus filtros.
 3. Você abre os imóveis que interessam, vê fotos e dados, pede a **sugestão da IA** (opcional), preenche a **Análise da avaliadora** e marca **Incluir na avaliação**.
-4. Você exporta para **Excel (XLSX)** ou **CSV**. Só saem os imóveis marcados como incluídos.
+4. Você dá um **nome à pesquisa** (ex.: "Casa Adriana"). Ela fica salva por 30 dias com os imóveis e a seleção, e pode ser reaberta depois sem refazer a busca.
+5. Você exporta para **Excel (XLSX)** ou **CSV**. Só saem os imóveis marcados como incluídos na pesquisa aberta.
 
 > Em telas pequenas (celular), o painel de filtros fica atrás do botão **Filtros** no topo.
 
@@ -171,13 +172,26 @@ Na ficha do imóvel, o bloco **Análise da avaliadora** guarda o que vale para a
 
 O campo "Padrão de acabamento" é **um só**: o que a IA sugere e o que você preenche gravam no mesmo lugar (por exemplo, "2.5 Médio"). A IA só sugere; vale e vai para a planilha o que está salvo em "Análise da avaliadora". Se você não preencheu estado/padrão, a planilha usa o que o próprio anúncio informou (quando houver).
 
+### Pesquisas salvas (uma por avaliação)
+
+A seleção dos imóveis fica guardada numa **pesquisa salva com nome**, por exemplo "Casa Adriana". Assim, duas avaliações ao mesmo tempo (uma casa e um apartamento de clientes diferentes) não se misturam.
+
+- **Salvar:** ao marcar o primeiro imóvel de uma busca, o sistema pede um nome. Também dá para clicar em **Salvar pesquisa** acima da lista. A partir daí, aparece no topo a faixa *"Pesquisa salva: Casa Adriana"* e cada marcação é gravada na hora.
+- **Retomar:** clique em **Pesquisas salvas** (canto superior direito) e em **Abrir**. Voltam os filtros, os imóveis e a seleção, direto na aba **Selecionados**, sem refazer a busca. Dá para conferir, ajustar e exportar de novo.
+- **Buscar de novo com uma pesquisa aberta:** o sistema pergunta se os novos resultados são **para a mesma pesquisa** (os imóveis já incluídos ou excluídos continuam nela) ou se é **outra avaliação** (fecha a atual e começa do zero).
+- **Fechar pesquisa:** limpa a tela para começar outra avaliação. A pesquisa continua salva.
+- **Renomear** fica na faixa do topo; **excluir**, no **✕** da lista de pesquisas salvas.
+- **Validade:** cada pesquisa fica disponível por **30 dias desde a última alteração**. A lista mostra quantos dias faltam.
+- Se escolher **"Agora não"** quando o sistema pedir o nome, a seleção fica só na tela. Aparece um aviso amarelo, e o navegador pergunta antes de sair ou de começar outra busca.
+- O que você preenche em **Análise da avaliadora** (estado, padrão, observações) é do imóvel: vale em qualquer pesquisa em que ele aparecer. Só a marcação "Incluir/Excluir" é de cada pesquisa.
+
 ---
 
 ## 7. Como exportar para o Excel
 
 1. Abra os imóveis que interessam e clique em **Incluir na avaliação** em cada um. (Dica: use as setas ← → na ficha para percorrer a lista.)
 2. Na barra acima da lista aparece **"Exportar N incluídos"**. Se nenhum estiver marcado, os botões ficam desabilitados com a mensagem *"Marque 'Incluir na avaliação' para exportar"*.
-3. Clique em **XLSX** (Excel) ou **CSV**.
+3. Clique em **XLSX** (Excel) ou **CSV**. Sai só o que está incluído na pesquisa aberta, e o arquivo leva o nome dela (ex.: `casa-adriana-2026-10-28.xlsx`). A planilha é gerada de novo a cada exportação.
 4. O arquivo baixa como `pesquisa-imoveis-AAAA-MM-DD.xlsx` (ou `.csv`), com uma aba chamada **Pesquisa**.
 
 **Pontos de atenção**

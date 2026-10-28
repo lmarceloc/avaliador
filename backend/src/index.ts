@@ -2,6 +2,7 @@
 import { encerrarBuscasInterrompidas, limparBuscasExpiradas } from "./buscas";
 import { executarColeta } from "./coleta";
 import { criarPool, migrar } from "./db";
+import { limparPesquisasExpiradas } from "./pesquisas";
 import { criarServidor } from "./servidor";
 
 const log = (m: string) => console.log(`${new Date().toISOString()} ${m}`);
@@ -19,10 +20,14 @@ const orfas = await encerrarBuscasInterrompidas(pool);
 if (orfas) log(`${orfas} busca(s) interrompida(s) marcadas como erro`);
 
 const UMA_HORA = 60 * 60 * 1000;
+// Cache de buscas (6 h) e pesquisas salvas (30 dias sem alteração).
 const limpeza = setInterval(() => {
   limparBuscasExpiradas(pool)
     .then((n) => n && log(`${n} busca(s) expirada(s) apagadas`))
-    .catch((e) => log(`limpeza falhou: ${(e as Error).message}`));
+    .catch((e) => log(`limpeza de buscas falhou: ${(e as Error).message}`));
+  limparPesquisasExpiradas(pool)
+    .then((n) => n && log(`${n} pesquisa(s) salva(s) expirada(s) apagadas`))
+    .catch((e) => log(`limpeza de pesquisas falhou: ${(e as Error).message}`));
 }, UMA_HORA);
 
 const servidor = criarServidor({

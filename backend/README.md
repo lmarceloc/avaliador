@@ -4,13 +4,14 @@ Serviço Node que substitui o n8n e o Supabase: coleta nas imobiliárias e guard
 VPS. Só o servidor do site (Vercel) fala com ele, sempre com o header `X-API-Key`.
 
 ```
-src/index.ts        sobe a API, aplica as migrações, encerra buscas órfãs e limpa o cache de hora em hora
+src/index.ts        sobe a API, aplica as migrações, encerra buscas órfãs e limpa cache e pesquisas vencidas de hora em hora
 src/servidor.ts     rotas HTTP
 src/buscas.ts       validação, cache de 6 h e coleta em segundo plano (era o workflow do n8n)
 src/coleta.ts       roda os conectores e o pipeline de web/src/lib/regras.ts
 src/conectores.js   conectores das 12 imobiliárias (mesmo código que rodava no nó Code do n8n)
 src/avaliacoes.ts   análise da avaliadora
 src/analises.ts     registros da sugestão por fotos (analises_foto, logs, triagens do Jev)
+src/pesquisas.ts    pesquisas salvas (nome + resultados + seleção, 30 dias); regras em web/src/lib/pesquisas.ts
 sql/                migrações, aplicadas sozinhas na subida (tabela schema_migracoes)
 scripts/            importar-supabase.ts (cópia única dos dados) e testar-coleta.ts
 ```
@@ -25,6 +26,9 @@ scripts/            importar-supabase.ts (cópia única dos dados) e testar-cole
 | `GET /avaliacoes` · `PUT /avaliacoes` | Lista e grava a análise da avaliadora. |
 | `POST /analises-foto` · `/analises-foto/logs` · `/analises-foto/triagens` | Grava a sugestão por fotos. |
 | `POST /analises-foto/:id/aprovar` | Marca a sugestão como aprovada. |
+| `GET /pesquisas` · `POST /pesquisas` | Lista as pesquisas salvas; cria uma a partir de uma busca concluída (`{ nome, requisicao_id, extras?, selecao? }`). |
+| `GET /pesquisas/:id` · `PATCH` · `DELETE` | Abre (resultados + seleção); renomeia ou troca os resultados (`substituir` / `juntar`); apaga. |
+| `PUT /pesquisas/:id/selecao` | `{ imovel_id, incluido: true \| false \| null }`. Toda alteração renova os 30 dias. |
 
 Se o serviço reinicia no meio de uma coleta, a busca vira `erro` ("o serviço reiniciou") na próxima subida,
 e o front para de esperar.

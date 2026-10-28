@@ -5,6 +5,7 @@ import type { AvaliacaoImovel, RequisicaoBusca } from "../../web/src/lib/contrat
 import { aprovarAnalise, gravarAnalise, gravarLogs, gravarTriagens } from "./analises";
 import { listarAvaliacoes, salvarAvaliacao } from "./avaliacoes";
 import { consultarBusca, iniciarBusca } from "./buscas";
+import { alterarPesquisa, criarPesquisa, ErroPesquisa, excluirPesquisa, lerPesquisa, listarPesquisas, marcarImovel } from "./pesquisas";
 import type { ResultadoColeta } from "./coleta";
 import type { Db } from "./db";
 
@@ -96,6 +97,23 @@ async function rotear(req: http.IncomingMessage, deps: DepsServidor): Promise<[n
       else break;
       return [201, { ok: true }];
     }
+    case "GET /pesquisas":
+      return [200, await listarPesquisas(db)];
+    case "POST /pesquisas":
+      return [201, await criarPesquisa(db, (await lerJson(req)) as never)];
+    case "GET /pesquisas/:":
+      return [200, await lerPesquisa(db, partes[1])];
+    case "PATCH /pesquisas/:":
+      return [200, await alterarPesquisa(db, partes[1], (await lerJson(req)) as never)];
+    case "DELETE /pesquisas/:":
+      await excluirPesquisa(db, partes[1]);
+      return [200, { ok: true }];
+    case "PUT /pesquisas/:/:": {
+      // PUT /pesquisas/:id/selecao  { imovel_id, incluido: true | false | null }
+      if (partes[2] !== "selecao") break;
+      const c = (await lerJson(req)) as { imovel_id?: unknown; incluido?: unknown } | null;
+      return [200, await marcarImovel(db, partes[1], c?.imovel_id, c?.incluido ?? null)];
+    }
     case "POST /analises-foto/:/:": {
       // POST /analises-foto/:id/aprovar  { imovel_id, aprovado_por }
       if (partes[2] !== "aprovar") break;
@@ -121,7 +139,7 @@ export function criarServidor(deps: DepsServidor): http.Server {
       const [codigo, corpo] = await rotear(req, deps);
       enviar(res, codigo, corpo);
     } catch (e) {
-      if (e instanceof ErroHttp) return enviar(res, e.codigo, { mensagem: e.message });
+      if (e instanceof ErroHttp || e instanceof ErroPesquisa) return enviar(res, e.codigo, { mensagem: e.message });
       // Erro do Postgres (ex.: violação de check) vira 500 com a mensagem; não há dado sensível nela.
       deps.log?.(`${req.method} ${req.url}: ${(e as Error).message}`);
       enviar(res, 500, { mensagem: (e as Error).message });

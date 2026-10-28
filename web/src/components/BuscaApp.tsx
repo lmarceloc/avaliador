@@ -14,9 +14,11 @@ import {
 import { FONTES_ATIVAS, nomeFonte } from "@/lib/fontes";
 import { exportarCsv, exportarXlsx, selecionarParaExportar } from "@/lib/exportar";
 import { ROTULO_TIPO } from "@/lib/formatar";
+import { juntarRespostas, type PesquisaSalva, type ResumoPesquisa, type Selecao } from "@/lib/pesquisas";
 import { PainelFiltros } from "./PainelFiltros";
 import { CardImovel, CardSkeleton } from "./CardImovel";
 import { DetalheImovel } from "./DetalheImovel";
+import { AvisoNaoSalva, BarraPesquisa, DialogoNome, DialogoNovaBusca, ListaPesquisas } from "./PesquisasSalvas";
 
 const INTERVALO_POLLING = 3000;
 const LIMITE_POLLING_MS = 5 * 60 * 1000;
@@ -40,6 +42,23 @@ interface Rapidos {
 const RAPIDOS_INICIAIS: Rapidos = { tipo: "", bairro: "", fonte: "", status: "todos", precoMin: null, precoMax: null, mostrarFora: false };
 
 const espera = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Pesquisa salva aberta na tela: a seleção é dela e cada marcação é gravada na hora. */
+interface PesquisaAberta {
+  id: string;
+  nome: string;
+  expira_em: string;
+}
+
+type Dialogos =
+  | { tipo: "salvar"; motivo: "botao" | "selecao" }
+  | { tipo: "renomear" }
+  | { tipo: "nova-busca"; atualizar: boolean }
+  | { tipo: "lista" };
+
+const enviarJson = (metodo: string, corpo: unknown): RequestInit => ({
+  method: metodo, headers: { "Content-Type": "application/json" }, body: JSON.stringify(corpo),
+});
 
 async function json<T>(resp: Response): Promise<T> {
   const corpo = await resp.json().catch(() => ({}));
@@ -121,6 +140,17 @@ export function BuscaApp() {
   const [filtrosAbertosMobile, setFiltrosAbertosMobile] = useState(false);
   const buscaAtual = useRef<string | null>(null);
   const ultimaReq = useRef<RequisicaoBusca | null>(null);
+  // Seleção da tela (incluir/excluir). Com pesquisa aberta, espelha a dela; sem, fica só na memória até salvar.
+  const [selecao, setSelecao] = useState<Selecao>({});
+  const [pesquisa, setPesquisa] = useState<PesquisaAberta | null>(null);
+  const [pesquisas, setPesquisas] = useState<ResumoPesquisa[]>([]);
+  const [carregandoLista, setCarregandoLista] = useState(false);
+  const [erroLista, setErroLista] = useState<string | null>(null);
+  const [dialogo, setDialogo] = useState<Dialogos | null>(null);
+  // Já pedimos o nome nesta busca? (só pergunta uma vez ao marcar o primeiro imóvel)
+  const [pediuNome, setPediuNome] = useState(false);
+  // De onde vieram os resultados da tela, para salvar sem reenviar os imóveis: busca principal + repetições de fonte.
+  const [origem, setOrigem] = useState<{ requisicao_id: string; extras: string[] } | null>(null);
 
   useEffect(() => {
     fetch("/api/avaliacoes")
@@ -129,10 +159,112 @@ export function BuscaApp() {
       .catch(() => {});
   }, []);
 
-  async function pesquisar(atualizar: boolean) {
+  const carregarPesquisas = useCallback(async () => {
+    setCarregandoLista(true);
+    setErroLista(null);
+    try {
+      setPesquisas(await json<ResumoPesquisa[]>(await fetch("/api/pesquisas", { cache: "no-store" })));
+    } catch (e) {
+      setErroLista((e as Error).message);
+    } finally {
+      setCarregandoLista(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/pesquisas", { cache: "no-store" })
+      .then((r) => json<ResumoPesquisa[]>(r))
+      .then(setPesquisas)
+      .catch(() => {});
+  }, []);
+
+  const selecaoSolta = !pesquisa && Object.keys(selecao).length > 0;
+  // Fechar a aba com seleção não salva perde o trabalho: o navegador pergunta antes.
+  useEffect(() => {
+    if (!selecaoSolta) return;
+    const aviso = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", aviso);
+    return () => window.removeEventListener("beforeunload", aviso);
+  }, [selecaoSolta]);
+
+  const podePerderSelecao = () =>
+    !selecaoSolta || window.confirm("A seleção desta busca não foi salva e vai se perder. Continuar mesmo assim?");
+
+  function aplicarPesquisa(p: PesquisaSalva) {
+    setPesquisa({ id: p.id, nome: p.nome, expira_em: p.expira_em });
+    setSelecao(p.selecao);
+    setResposta(p.resposta);
+    setProgresso(p.resposta.fontes ?? []);
+    setOrigem(null);
+  }
+
+  function fecharPesquisa() {
+    buscaAtual.current = null;
+    setPesquisa(null);
+    setSelecao({});
+    setResposta(null);
+    setEstado("ocioso");
+    setErroGeral(null);
+    setAba("todos");
+    setOrigem(null);
+  }
+
+  async function abrirPesquisa(id: string) {
+    if (!podePerderSelecao()) return;
+    const p = await json<PesquisaSalva>(await fetch(`/api/pesquisas/${encodeURIComponent(id)}`, { cache: "no-store" }));
+    buscaAtual.current = null;
+    aplicarPesquisa(p);
+    setFiltros(p.filtros);
+    setFontes(p.fontes);
+    ultimaReq.current = novaRequisicao(p.filtros, p.fontes, false);
+    setEstado("pronto");
+    setErroGeral(null);
+    setRapidos(RAPIDOS_INICIAIS);
+    setAba(Object.values(p.selecao).some(Boolean) ? "selecionados" : "todos");
+    setDialogo(null);
+  }
+
+  async function salvarPesquisa(nome: string) {
+    if (!origem) throw new Error("Faça uma busca antes de salvar.");
+    const p = await json<PesquisaSalva>(
+      await fetch("/api/pesquisas", enviarJson("POST", { nome, ...origem, selecao })),
+    );
+    aplicarPesquisa(p);
+    setDialogo(null);
+    void carregarPesquisas();
+  }
+
+  async function renomearPesquisa(nome: string) {
+    if (!pesquisa) return;
+    const p = await json<PesquisaSalva>(await fetch(`/api/pesquisas/${pesquisa.id}`, enviarJson("PATCH", { nome })));
+    setPesquisa({ id: p.id, nome: p.nome, expira_em: p.expira_em });
+    setDialogo(null);
+    void carregarPesquisas();
+  }
+
+  async function excluirPesquisa(p: ResumoPesquisa) {
+    await json(await fetch(`/api/pesquisas/${p.id}`, { method: "DELETE" }));
+    if (pesquisa?.id === p.id) fecharPesquisa();
+    await carregarPesquisas();
+  }
+
+  /** Botão Pesquisar: com pesquisa aberta, pergunta se os resultados são para ela ou para outra avaliação. */
+  function pesquisar(atualizar: boolean) {
+    if (pesquisa) return setDialogo({ tipo: "nova-busca", atualizar });
+    if (!podePerderSelecao()) return;
+    void rodarBusca(atualizar, null);
+  }
+
+  async function rodarBusca(atualizar: boolean, destino: PesquisaAberta | null) {
     const req = novaRequisicao(filtros, fontes, atualizar);
     buscaAtual.current = req.requisicao_id;
     ultimaReq.current = req;
+    if (!destino) {
+      // Busca solta nova: começa sem seleção (a anterior ou foi salva ou o usuário aceitou perder).
+      setSelecao({});
+      setPediuNome(false);
+      setOrigem(null);
+    }
     setEstado("carregando");
     setErroGeral(null);
     setResposta(null);
@@ -147,10 +279,26 @@ export function BuscaApp() {
         () => buscaAtual.current !== req.requisicao_id,
       );
       if (buscaAtual.current !== req.requisicao_id) return;
-      setResposta(r);
-      setProgresso(r.fontes ?? []);
-      setEstado(r.status === "erro" ? "erro" : "pronto");
-      if (r.status === "erro") setErroGeral("Nenhuma fonte respondeu.");
+      if (r.status === "erro") {
+        setResposta(r);
+        setProgresso(r.fontes ?? []);
+        setEstado("erro");
+        setErroGeral("Nenhuma fonte respondeu.");
+        return;
+      }
+      if (destino) {
+        // Nova busca dentro da pesquisa aberta: o backend troca os resultados e mantém os imóveis já decididos.
+        const p = await json<PesquisaSalva>(
+          await fetch(`/api/pesquisas/${destino.id}`, enviarJson("PATCH", { resultados: { requisicao_id: req.requisicao_id, modo: "substituir" } })),
+        );
+        aplicarPesquisa(p);
+        void carregarPesquisas();
+      } else {
+        setResposta(r);
+        setProgresso(r.fontes ?? []);
+        setOrigem({ requisicao_id: req.requisicao_id, extras: [] });
+      }
+      setEstado("pronto");
     } catch (e) {
       if (buscaAtual.current !== req.requisicao_id) return;
       setEstado("erro");
@@ -166,20 +314,10 @@ export function BuscaApp() {
     try {
       const req = novaRequisicao(base.filtros, [fonteId], true);
       const r = await executarBusca(req, () => {}, () => false);
-      setResposta((atual) => {
-        if (!atual) return atual;
-        const ids = new Set(atual.imoveis?.map((i) => i.id));
-        const novaFonte = r.fontes?.find((f) => f.id === fonteId);
-        const fontesAtualizadas = (atual.fontes ?? []).map((f) => (f.id === fonteId && novaFonte ? novaFonte : f));
-        const algumaFalha = fontesAtualizadas.some((f) => f.status === "erro");
-        return {
-          ...atual,
-          status: algumaFalha ? "parcial" : "concluido",
-          fontes: fontesAtualizadas,
-          imoveis: [...(atual.imoveis ?? []), ...(r.imoveis ?? []).filter((i) => !ids.has(i.id))],
-          erros: [...(atual.erros ?? []).filter((e) => e.fonte !== fonteId), ...(r.erros ?? [])],
-        };
-      });
+      setResposta((atual) => (atual ? juntarRespostas(atual, r) : atual));
+      if (pesquisa)
+        await fetch(`/api/pesquisas/${pesquisa.id}`, enviarJson("PATCH", { resultados: { requisicao_id: req.requisicao_id, modo: "juntar" } }));
+      else setOrigem((o) => o && { ...o, extras: [...o.extras, req.requisicao_id] });
     } catch {
       // mantém o aviso de erro da fonte
     } finally {
@@ -187,25 +325,65 @@ export function BuscaApp() {
     }
   }
 
-  const salvarAvaliacao = useCallback(async (a: AvaliacaoImovel) => {
-    const salvo = await json<AvaliacaoImovel>(
-      await fetch("/api/avaliacoes", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(a) }),
-    );
-    setAvaliacoes((atual) => ({ ...atual, [salvo.imovel_id]: salvo }));
-  }, []);
+  /** Incluir (true), excluir (false) ou desfazer (null). Com pesquisa aberta grava nela; sem, pede um nome. */
+  async function marcar(id: string, valor: boolean | null) {
+    const aplicar = (v: boolean | null | undefined) =>
+      setSelecao((s) => {
+        const n = { ...s };
+        if (v === null || v === undefined) delete n[id];
+        else n[id] = v;
+        return n;
+      });
+    const anterior = selecao[id];
+    aplicar(valor);
+    if (!pesquisa) {
+      if (valor === true && !pediuNome) {
+        setPediuNome(true);
+        setDialogo({ tipo: "salvar", motivo: "selecao" });
+      }
+      return;
+    }
+    try {
+      const r = await json<{ expira_em: string }>(
+        await fetch(`/api/pesquisas/${pesquisa.id}/selecao`, enviarJson("PUT", { imovel_id: id, incluido: valor })),
+      );
+      setPesquisa((p) => p && { ...p, expira_em: r.expira_em });
+    } catch (e) {
+      aplicar(anterior);
+      throw e;
+    }
+  }
+
+  // A análise (estado, padrão, observações) é do imóvel; "incluído/excluído" é da pesquisa.
+  // As telas recebem as duas coisas juntas no formato de AvaliacaoImovel.
+  const avaliacoesTela = useMemo(() => {
+    const ids = new Set([...Object.keys(avaliacoes), ...Object.keys(selecao)]);
+    return Object.fromEntries(
+      [...ids].map((id) => [id, {
+        ...(avaliacoes[id] ?? { imovel_id: id, estado_conservacao: null, padrao_acabamento: null, observacoes: null }),
+        incluido_avaliacao: selecao[id] ?? null,
+      }]),
+    ) as Record<string, AvaliacaoImovel>;
+  }, [avaliacoes, selecao]);
+
+  async function salvarAvaliacao(a: AvaliacaoImovel) {
+    const antes = avaliacoes[a.imovel_id];
+    const analise = (x?: Partial<AvaliacaoImovel>) => JSON.stringify([x?.estado_conservacao ?? null, x?.padrao_acabamento ?? null, x?.observacoes ?? null]);
+    if (analise(a) !== analise(antes)) {
+      // incluido_avaliacao do banco não é mais usado pela tela: vai como estava.
+      const salvo = await json<AvaliacaoImovel>(
+        await fetch("/api/avaliacoes", enviarJson("PUT", { ...a, incluido_avaliacao: antes?.incluido_avaliacao ?? null })),
+      );
+      setAvaliacoes((atual) => ({ ...atual, [salvo.imovel_id]: salvo }));
+    }
+    if ((a.incluido_avaliacao ?? null) !== (selecao[a.imovel_id] ?? null)) await marcar(a.imovel_id, a.incluido_avaliacao ?? null);
+  }
 
   // Desmarcar a caixinha do card volta para "não decidido" (null), não para "Excluído".
-  const incluirNaPlanilha = useCallback(
-    (id: string, incluir: boolean) =>
-      salvarAvaliacao({
-        ...(avaliacoes[id] ?? { imovel_id: id, estado_conservacao: null, padrao_acabamento: null, observacoes: null }),
-        incluido_avaliacao: incluir ? true : null,
-      }),
-    [avaliacoes, salvarAvaliacao],
-  );
+  const incluirNaPlanilha = (id: string, incluir: boolean) => marcar(id, incluir ? true : null);
 
   const imoveis = useMemo(() => resposta?.imoveis ?? [], [resposta]);
-  const paraExportar = useMemo(() => selecionarParaExportar(imoveis, avaliacoes), [imoveis, avaliacoes]);
+  const paraExportar = useMemo(() => selecionarParaExportar(imoveis, avaliacoesTela), [imoveis, avaliacoesTela]);
 
   const visiveis = useMemo(() => {
     const r = rapidos;
@@ -271,6 +449,12 @@ export function BuscaApp() {
             <h1 className="text-base font-semibold leading-tight">Busca de Imóveis</h1>
           </div>
           <button
+            type="button" onClick={() => { setDialogo({ tipo: "lista" }); void carregarPesquisas(); }}
+            className="rounded-md border border-line px-3 py-1.5 text-sm font-medium hover:bg-surface-2"
+          >
+            Pesquisas salvas{pesquisas.length > 0 && <span className="ml-1 text-ink-3">({pesquisas.length})</span>}
+          </button>
+          <button
             type="button" onClick={() => setFiltrosAbertosMobile(true)}
             className="rounded-md border border-line px-3 py-1.5 text-sm font-medium lg:hidden"
           >
@@ -296,6 +480,14 @@ export function BuscaApp() {
         </aside>
 
         <main className="flex min-w-0 flex-col gap-4">
+          {pesquisa && (
+            <BarraPesquisa
+              nome={pesquisa.nome} expiraEm={pesquisa.expira_em} selecionados={Object.values(selecao).filter(Boolean).length}
+              onRenomear={() => setDialogo({ tipo: "renomear" })} onFechar={fecharPesquisa}
+            />
+          )}
+          {selecaoSolta && estado === "pronto" && <AvisoNaoSalva onSalvar={() => setDialogo({ tipo: "salvar", motivo: "botao" })} />}
+
           {estado === "ocioso" && (
             <div className="grid min-h-[50vh] place-items-center rounded-lg border border-dashed border-line bg-surface p-10 text-center">
               <div className="max-w-md">
@@ -357,7 +549,17 @@ export function BuscaApp() {
                     {(resposta.fontes ?? []).filter((f) => f.status === "ok").map((f) => `${f.nome} (${f.itens})`).join(" · ")}
                   </p>
                 </div>
-                {incluidos === 0 && <p className="text-xs text-ink-3">Marque “Incluir na avaliação” para exportar.</p>}
+                <div className="flex items-center gap-3">
+                  {incluidos === 0 && <p className="text-xs text-ink-3">Marque “Incluir na avaliação” para exportar.</p>}
+                  {!pesquisa && !selecaoSolta && origem && (
+                    <button
+                      type="button" onClick={() => setDialogo({ tipo: "salvar", motivo: "botao" })}
+                      className="whitespace-nowrap rounded-md border border-accent px-3 py-1.5 text-sm font-medium text-accent hover:bg-accent-soft"
+                    >
+                      Salvar pesquisa
+                    </button>
+                  )}
+                </div>
               </div>
 
               {imoveis.length > 0 && (
@@ -442,7 +644,7 @@ export function BuscaApp() {
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(270px,1fr))] gap-4">
                   {visiveis.map((i) => (
                     <CardImovel
-                      key={i.id} imovel={i} avaliacao={avaliacoes[i.id]} onAbrir={() => setAberto(i.id)}
+                      key={i.id} imovel={i} avaliacao={avaliacoesTela[i.id]} onAbrir={() => setAberto(i.id)}
                       onIncluir={(incluir) => incluirNaPlanilha(i.id, incluir)}
                     />
                   ))}
@@ -462,8 +664,8 @@ export function BuscaApp() {
                     {aba === "todos" ? "Ver selecionados" : "Ver todos"}
                   </button>
                 )}
-                <button type="button" onClick={() => exportarCsv(paraExportar, avaliacoes)} className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-2">Exportar CSV</button>
-                <button type="button" onClick={() => exportarXlsx(paraExportar, avaliacoes)} className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-accent-ink hover:brightness-110">Exportar XLSX</button>
+                <button type="button" onClick={() => exportarCsv(paraExportar, avaliacoesTela, pesquisa?.nome)} className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-2">Exportar CSV</button>
+                <button type="button" onClick={() => exportarXlsx(paraExportar, avaliacoesTela, pesquisa?.nome)} className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-accent-ink hover:brightness-110">Exportar XLSX</button>
               </div>
             </div>
           )}
@@ -474,11 +676,42 @@ export function BuscaApp() {
         <DetalheImovel
           key={imovelAberto.id}
           imovel={imovelAberto}
-          avaliacao={avaliacoes[imovelAberto.id]}
+          avaliacao={avaliacoesTela[imovelAberto.id]}
           onFechar={fecharDetalhe}
           onSalvar={salvarAvaliacao}
           onAnterior={indiceAberto > 0 ? () => setAberto(visiveis[indiceAberto - 1].id) : undefined}
           onProximo={indiceAberto >= 0 && indiceAberto < visiveis.length - 1 ? () => setAberto(visiveis[indiceAberto + 1].id) : undefined}
+        />
+      )}
+
+      {dialogo?.tipo === "lista" && (
+        <ListaPesquisas
+          pesquisas={pesquisas} carregando={carregandoLista} erro={erroLista} idAtual={pesquisa?.id ?? null}
+          onAbrir={abrirPesquisa} onExcluir={excluirPesquisa} onFechar={() => setDialogo(null)}
+        />
+      )}
+      {dialogo?.tipo === "salvar" && (
+        <DialogoNome
+          titulo="Salvar pesquisa"
+          descricao={dialogo.motivo === "selecao"
+            ? "Para guardar a seleção e não misturar com outra avaliação, dê um nome a esta pesquisa. Ela fica disponível por 30 dias."
+            : "Os imóveis, os filtros e a seleção ficam guardados por 30 dias."}
+          rotuloConfirmar="Salvar" rotuloCancelar={dialogo.motivo === "selecao" ? "Agora não" : "Cancelar"}
+          onConfirmar={salvarPesquisa} onCancelar={() => setDialogo(null)}
+        />
+      )}
+      {dialogo?.tipo === "renomear" && pesquisa && (
+        <DialogoNome
+          titulo="Renomear pesquisa" inicial={pesquisa.nome} rotuloConfirmar="Renomear"
+          onConfirmar={renomearPesquisa} onCancelar={() => setDialogo(null)}
+        />
+      )}
+      {dialogo?.tipo === "nova-busca" && pesquisa && (
+        <DialogoNovaBusca
+          nome={pesquisa.nome}
+          onAtualizar={() => { setDialogo(null); void rodarBusca(dialogo.atualizar, pesquisa); }}
+          onNova={() => { const atualizar = dialogo.atualizar; setDialogo(null); fecharPesquisa(); void rodarBusca(atualizar, null); }}
+          onCancelar={() => setDialogo(null)}
         />
       )}
     </div>

@@ -91,7 +91,7 @@ describe("backend", { skip: !URL_TESTE && "defina DATABASE_URL_TESTE para rodar 
   });
 
   test("migrações aplicam uma vez só", async () => {
-    assert.deepEqual(await migrar(pool), ["001_inicial.sql"]);
+    assert.deepEqual(await migrar(pool), ["001_inicial.sql", "002_pesquisas_salvas.sql"]);
     assert.deepEqual(await migrar(pool), []);
   });
 
@@ -237,5 +237,128 @@ describe("backend", { skip: !URL_TESTE && "defina DATABASE_URL_TESTE para rodar 
     r = await chamar(`/analises-foto/${analise}/aprovar`, { method: "POST", body: JSON.stringify({ imovel_id: "outro" }) });
     assert.equal(r.status, 404);
     assert.equal((await chamar("/analises-foto/logs", { method: "POST", body: JSON.stringify({ nao: "lista" }) })).status, 400);
+  });
+  // Faz uma busca pela API (coleta falsa: flow-1 e flow-2) e devolve o requisicao_id já concluído.
+  async function buscaConcluida(parcial: Partial<RequisicaoBusca> = {}): Promise<string> {
+    const req = requisicao({ atualizar_cache: true, ...parcial });
+    await chamar("/buscas", { method: "POST", body: JSON.stringify(req) });
+    await esperarColetas();
+    return req.requisicao_id;
+  }
+  const criar = (corpo: unknown) => chamar("/pesquisas", { method: "POST", body: JSON.stringify(corpo) });
+
+  test("pesquisas salvas: cria com resultados da busca, lista, abre e valida nome", async () => {
+    const id = await buscaConcluida();
+    let r = await criar({ nome: "  Casa   Adriana ", requisicao_id: id, selecao: { "flow-1": true, "flow-2": false } });
+    assert.equal(r.status, 201);
+    const p = await json(r);
+    assert.equal(p.nome, "Casa Adriana");
+    assert.equal(p.resposta.imoveis.length, 2);
+    assert.deepEqual(p.filtros.bairros, ["Órfãs"]);
+    assert.deepEqual(p.fontes, ["flow", "kikina"]);
+    assert.deepEqual(p.selecao, { "flow-1": true, "flow-2": false });
+    const dias = (Date.parse(p.expira_em) - Date.now()) / 86_400_000;
+    assert.ok(dias > 29.9 && dias <= 30, `expira em 30 dias (veio ${dias})`);
+
+    r = await criar({ nome: "casa adriana", requisicao_id: id });
+    assert.equal(r.status, 409, "nome repetido, sem diferenciar maiúsculas");
+    assert.equal((await json(r)).mensagem, "Já existe uma pesquisa salva com esse nome");
+    assert.equal((await criar({ nome: "   ", requisicao_id: id })).status, 400);
+    assert.equal((await criar({ nome: "x".repeat(81), requisicao_id: id })).status, 400);
+    assert.equal((await criar({ nome: "Sem busca", requisicao_id: randomUUID() })).status, 409);
+    assert.equal((await criar({ nome: "Seleção ruim", requisicao_id: id, selecao: { a: "sim" } })).status, 400);
+
+    const lista = await json(await chamar("/pesquisas"));
+    const item = lista.find((x: { id: string }) => x.id === p.id);
+    assert.equal(item.total_imoveis, 2);
+    assert.equal(item.selecionados, 1, "só conta os incluídos");
+    assert.equal(item.resposta, undefined, "a lista não traz os resultados");
+
+    const aberta = await json(await chamar(`/pesquisas/${p.id}`));
+    assert.deepEqual(aberta.selecao, p.selecao);
+    assert.equal((await chamar(`/pesquisas/${randomUUID()}`)).status, 404);
+    assert.equal((await chamar("/pesquisas/nao-e-uuid")).status, 404);
+  });
+
+  test("pesquisas salvas: seleção separada por pesquisa e renovação dos 30 dias", async () => {
+    const id = await buscaConcluida();
+    const a = await json(await criar({ nome: "Casa A", requisicao_id: id }));
+    const b = await json(await criar({ nome: "Apartamento B", requisicao_id: id }));
+    const marcar = (pid: string, imovel_id: string, incluido: boolean | null) =>
+      chamar(`/pesquisas/${pid}/selecao`, { method: "PUT", body: JSON.stringify({ imovel_id, incluido }) });
+
+    await pool.query("update pesquisas_salvas set expira_em = now() + interval '1 day' where id = $1", [a.id]);
+    assert.equal((await marcar(a.id, "flow-1", true)).status, 200);
+    assert.equal((await marcar(b.id, "flow-2", false)).status, 200);
+    let pa = await json(await chamar(`/pesquisas/${a.id}`));
+    const pb = await json(await chamar(`/pesquisas/${b.id}`));
+    assert.deepEqual(pa.selecao, { "flow-1": true });
+    assert.deepEqual(pb.selecao, { "flow-2": false });
+    assert.ok((Date.parse(pa.expira_em) - Date.now()) / 86_400_000 > 29.9, "marcar renova a validade");
+
+    await marcar(a.id, "flow-1", null);
+    pa = await json(await chamar(`/pesquisas/${a.id}`));
+    assert.deepEqual(pa.selecao, {});
+    assert.equal((await marcar(a.id, "", true)).status, 400);
+    assert.equal((await marcar(a.id, "flow-1", "sim" as never)).status, 400);
+    assert.equal((await marcar(randomUUID(), "flow-1", true)).status, 404);
+  });
+
+  test("pesquisas salvas: renomear, nova busca mantém os decididos, repetição junta, excluir", async () => {
+    const id = await buscaConcluida();
+    const p = await json(await criar({ nome: "Casa C", requisicao_id: id, selecao: { "flow-1": true } }));
+
+    let r = await chamar(`/pesquisas/${p.id}`, { method: "PATCH", body: JSON.stringify({ nome: "Casa Carla" }) });
+    assert.equal((await json(r)).nome, "Casa Carla");
+    await criar({ nome: "Outra", requisicao_id: id });
+    r = await chamar(`/pesquisas/${p.id}`, { method: "PATCH", body: JSON.stringify({ nome: "outra" }) });
+    assert.equal(r.status, 409);
+
+    // Nova busca que não traz flow-1: ele continua porque foi incluído; flow-2 (não decidido) vem da busca nova.
+    await pool.query(
+      "update buscas set resposta = jsonb_set(resposta, '{imoveis}', (select jsonb_agg(i) from jsonb_array_elements(resposta->'imoveis') i where i->>'id' <> 'flow-1')) where requisicao_id = $1",
+      [id],
+    );
+    const id2 = await buscaConcluida({ filtros: { ...requisicao().filtros, bairros: ["Centro"] } });
+    await pool.query(
+      "update buscas set resposta = jsonb_set(resposta, '{imoveis}', (select jsonb_agg(i) from jsonb_array_elements(resposta->'imoveis') i where i->>'id' <> 'flow-1')) where requisicao_id = $1",
+      [id2],
+    );
+    r = await chamar(`/pesquisas/${p.id}`, { method: "PATCH", body: JSON.stringify({ resultados: { requisicao_id: id2, modo: "substituir" } }) });
+    let atual = await json(r);
+    assert.deepEqual(atual.resposta.imoveis.map((i: { id: string }) => i.id).sort(), ["flow-1", "flow-2"]);
+    assert.deepEqual(atual.filtros.bairros, ["Centro"], "filtros da busca nova");
+    assert.deepEqual(atual.selecao, { "flow-1": true });
+
+    // Repetição de uma fonte: kikina passa a ok e traz um imóvel novo.
+    const extra = randomUUID();
+    await pool.query(
+      `insert into buscas (requisicao_id, chave_cache, status, requisicao, resposta) values ($1, 'x', 'concluido', $2, $3)`,
+      [extra, JSON.stringify(requisicao({ fontes: ["kikina"] })), JSON.stringify({
+        requisicao_id: extra, status: "concluido", fontes: [{ id: "kikina", nome: "Kikina", status: "ok", itens: 1 }],
+        imoveis: [imovel("kikina-9", "kikina")], erros: [],
+      })],
+    );
+    r = await chamar(`/pesquisas/${p.id}`, { method: "PATCH", body: JSON.stringify({ resultados: { requisicao_id: extra, modo: "juntar" } }) });
+    atual = await json(r);
+    assert.ok(atual.resposta.imoveis.some((i: { id: string }) => i.id === "kikina-9"));
+    assert.equal(atual.resposta.status, "concluido");
+    assert.deepEqual(atual.resposta.erros, []);
+    assert.deepEqual(atual.filtros.bairros, ["Centro"], "juntar não troca os filtros");
+    assert.equal((await chamar(`/pesquisas/${p.id}`, { method: "PATCH", body: JSON.stringify({ resultados: { requisicao_id: extra, modo: "outro" } }) })).status, 400);
+
+    assert.equal((await chamar(`/pesquisas/${p.id}`, { method: "DELETE" })).status, 200);
+    assert.equal((await chamar(`/pesquisas/${p.id}`)).status, 404);
+    assert.equal((await pool.query("select count(*)::int as n from pesquisas_selecao where pesquisa_id = $1", [p.id])).rows[0].n, 0);
+    assert.equal((await chamar(`/pesquisas/${p.id}`, { method: "DELETE" })).status, 404);
+  });
+
+  test("pesquisas salvas: expiradas somem da lista e liberam o nome", async () => {
+    const id = await buscaConcluida();
+    const p = await json(await criar({ nome: "Vencida", requisicao_id: id }));
+    await pool.query("update pesquisas_salvas set expira_em = now() - interval '1 minute' where id = $1", [p.id]);
+    assert.ok(!(await json(await chamar("/pesquisas"))).some((x: { id: string }) => x.id === p.id));
+    assert.equal((await chamar(`/pesquisas/${p.id}`)).status, 404);
+    assert.equal((await criar({ nome: "vencida", requisicao_id: id })).status, 201, "o nome fica livre");
   });
 });

@@ -63,9 +63,13 @@ function baixar(blob: Blob, nome: string) {
   URL.revokeObjectURL(url);
 }
 
-const nomeArquivo = (ext: string) => `pesquisa-imoveis-${new Date().toISOString().slice(0, 10)}.${ext}`;
+/** "Casa Adriana" → casa-adriana-2026-10-28.xlsx; sem pesquisa salva, pesquisa-imoveis-2026-10-28.xlsx. */
+const nomeArquivo = (ext: string, pesquisa?: string) => {
+  const base = pesquisa ? pesquisa.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") : "";
+  return `${base || "pesquisa-imoveis"}-${new Date().toISOString().slice(0, 10)}.${ext}`;
+};
 
-export function exportarCsv(imoveis: Imovel[], avaliacoes: Record<string, AvaliacaoImovel>) {
+export function exportarCsv(imoveis: Imovel[], avaliacoes: Record<string, AvaliacaoImovel>, pesquisa?: string) {
   const esc = (v: string | number | null) => {
     if (v === null) return "";
     const s = typeof v === "number" ? String(v).replace(".", ",") : v;
@@ -74,10 +78,10 @@ export function exportarCsv(imoveis: Imovel[], avaliacoes: Record<string, Avalia
   // Separador ";" e BOM para o Excel em português abrir direto.
   const celula = (v: string | number | null, c: number) => (c === COL_DEPRECIACAO && typeof v === "number" ? v.toFixed(2).replace(".", ",") : v);
   const csv = [COLUNAS, ...linhas(imoveis, avaliacoes)].map((l) => l.map((v, c) => esc(celula(v, c))).join(";")).join("\r\n");
-  baixar(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }), nomeArquivo("csv"));
+  baixar(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }), nomeArquivo("csv", pesquisa));
 }
 
-export async function exportarXlsx(imoveis: Imovel[], avaliacoes: Record<string, AvaliacaoImovel>) {
+export async function exportarXlsx(imoveis: Imovel[], avaliacoes: Record<string, AvaliacaoImovel>, pesquisa?: string) {
   const XLSX = await import("xlsx");
   const planilha = XLSX.utils.aoa_to_sheet([COLUNAS, ...linhas(imoveis, avaliacoes)]);
   planilha["!cols"] = COLUNAS.map((c) => ({ wch: Math.max(10, c.length + 2) }));
@@ -89,5 +93,5 @@ export async function exportarXlsx(imoveis: Imovel[], avaliacoes: Record<string,
   const livro = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(livro, planilha, "Pesquisa");
   const dados = XLSX.write(livro, { type: "array", bookType: "xlsx" });
-  baixar(new Blob([dados], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), nomeArquivo("xlsx"));
+  baixar(new Blob([dados], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), nomeArquivo("xlsx", pesquisa));
 }
