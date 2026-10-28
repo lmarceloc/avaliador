@@ -1,4 +1,4 @@
-// Tipos do contrato front ↔ n8n (especificação, seção 5).
+// Tipos do contrato front ↔ backend (especificação, seção 5).
 
 export type TipoImovel = "casa" | "apartamento" | "terreno";
 export type SimNao = "sim" | "nao" | "indiferente";

@@ -1,21 +1,12 @@
-// Persistência de analises_foto e analises_foto_log (Supabase; arquivo local só em desenvolvimento).
+// Persistência de analises_foto, analises_foto_log e triagens_jev (backend da VPS; arquivo local só em desenvolvimento).
 import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import dns from "node:dns/promises";
 import net from "node:net";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { backend, backendJson } from "@/lib/servidor";
 import type { Armazenamento, LinhaAnalise, LinhaLogFoto } from "./analise-fotos";
 import type { ArmazenamentoTriagem, LinhaTriagem } from "./triagem-jev";
-
-let supabase: SupabaseClient | null = null;
-function db(): SupabaseClient | null {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  supabase ??= createClient(url, key, { auth: { persistSession: false } });
-  return supabase;
-}
 
 const PASTA = path.join(process.cwd(), ".data");
 const ARQ_ANALISES = path.join(PASTA, "analises_foto.json");
@@ -34,46 +25,38 @@ async function gravarLocal(arq: string, dados: unknown[]) {
   await fs.writeFile(arq, JSON.stringify(dados, null, 2));
 }
 
+const post = (caminho: string, corpo: unknown) => backendJson(caminho, { method: "POST", body: JSON.stringify(corpo) });
+
 export const armazenamento: Armazenamento = {
   async gravarAnalise(a: LinhaAnalise) {
-    const cliente = db();
-    if (!cliente) return gravarLocal(ARQ_ANALISES, [...(await lerLocal<LinhaAnalise>(ARQ_ANALISES)), a]);
-    const { error } = await cliente.from("analises_foto").insert(a);
-    if (error) throw new Error(error.message);
+    if (!backend.base) return gravarLocal(ARQ_ANALISES, [...(await lerLocal<LinhaAnalise>(ARQ_ANALISES)), a]);
+    await post("/analises-foto", a);
   },
   async gravarLogs(linhas: LinhaLogFoto[]) {
     if (linhas.length === 0) return;
-    const cliente = db();
-    if (!cliente) return gravarLocal(ARQ_LOG, [...(await lerLocal<LinhaLogFoto>(ARQ_LOG)), ...linhas]);
-    const { error } = await cliente.from("analises_foto_log").insert(linhas);
-    if (error) throw new Error(error.message);
+    if (!backend.base) return gravarLocal(ARQ_LOG, [...(await lerLocal<LinhaLogFoto>(ARQ_LOG)), ...linhas]);
+    await post("/analises-foto/logs", linhas);
   },
 };
 
 export const armazenamentoTriagem: ArmazenamentoTriagem = {
   async gravarTriagens(linhas: LinhaTriagem[]) {
     if (linhas.length === 0) return;
-    const cliente = db();
-    if (!cliente) return gravarLocal(ARQ_TRIAGENS, [...(await lerLocal<LinhaTriagem>(ARQ_TRIAGENS)), ...linhas]);
-    const { error } = await cliente.from("triagens_jev").insert(linhas);
-    if (error) throw new Error(error.message);
+    if (!backend.base) return gravarLocal(ARQ_TRIAGENS, [...(await lerLocal<LinhaTriagem>(ARQ_TRIAGENS)), ...linhas]);
+    await post("/analises-foto/triagens", linhas);
   },
 };
 
 /** Marca a análise como aprovada depois que o usuário confirmou e a avaliação foi gravada. */
 export async function aprovarAnalise(id: string, imovelId: string, por: string | null): Promise<void> {
-  const aprovacao = { aprovado_por: por, aprovado_em: new Date().toISOString() };
-  const cliente = db();
-  if (!cliente) {
+  if (!backend.base) {
     const todas = await lerLocal<LinhaAnalise>(ARQ_ANALISES);
     const alvo = todas.find((a) => a.id === id && a.imovel_id === imovelId);
     if (!alvo) throw new Error("Análise não encontrada");
-    Object.assign(alvo, aprovacao);
+    Object.assign(alvo, { aprovado_por: por, aprovado_em: new Date().toISOString() });
     return gravarLocal(ARQ_ANALISES, todas);
   }
-  const { data, error } = await cliente.from("analises_foto").update(aprovacao).eq("id", id).eq("imovel_id", imovelId).select("id");
-  if (error) throw new Error(error.message);
-  if (!data?.length) throw new Error("Análise não encontrada");
+  await post(`/analises-foto/${encodeURIComponent(id)}/aprovar`, { imovel_id: imovelId, aprovado_por: por });
 }
 
 // ---------- Proteção contra SSRF: o servidor só baixa fotos de endereços públicos ----------

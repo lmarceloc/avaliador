@@ -1,5 +1,5 @@
 // Regras de negócio da seção 4 (normalização, filtros, deduplicação e outliers).
-// Funções puras, sem dependências: o mesmo código pode ir para um nó Code do n8n.
+// Funções puras, sem dependências: o backend da VPS embute este mesmo arquivo na coleta.
 
 import type { Criterio, Faixa, Filtros, Imovel, RespostaBusca, SimNao } from "./contrato";
 import { normalizarBairro, semAcento } from "./bairros";
