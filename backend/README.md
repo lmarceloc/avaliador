@@ -42,9 +42,11 @@ e o front para de esperar.
      ```
      DATABASE_URL=<Internal Connection URL do passo 1>
      API_KEY=<chave longa e aleatória; ex.: saída de  openssl rand -hex 32>
+     PORT=3000
      ```
-   - Domains: um domínio HTTPS apontando para a porta **3000** (o padrão do EasyPanel serve,
-     algo como `https://avaliador-backend.<seu-host>.easypanel.host`).
+     Sem `PORT`, o EasyPanel passa `PORT=80`; o log mostra a porta em uso ("backend do avaliador na porta …").
+   - Domains: um domínio HTTPS apontando para a **mesma porta** do `PORT` (3000). O padrão do EasyPanel serve,
+     algo como `https://imoveis-backend.<seu-host>.easypanel.host`.
 3. **Deploy** e confira `https://<domínio do backend>/saude` → `{"ok":true}`. As tabelas são criadas na primeira subida.
 4. **Copiar os dados do Supabase** (uma vez; pode repetir sem duplicar). No **Console** do serviço backend:
    ```

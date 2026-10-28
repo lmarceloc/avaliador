@@ -17,5 +17,6 @@ COPY --from=build /repo/backend/dist dist
 COPY --from=build /repo/backend/sql sql
 USER node
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://127.0.0.1:3000/saude || exit 1
+# Usa a porta do PORT (o EasyPanel define PORT=80 se não houver outra).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD wget -qO- "http://127.0.0.1:${PORT:-3000}/saude" || exit 1
 CMD ["node", "--enable-source-maps", "dist/servidor.mjs"]
