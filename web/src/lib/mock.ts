@@ -222,3 +222,8 @@ export function consultarBusca(id: string): RespostaBusca | null {
     erros,
   };
 }
+
+/** Requisição de uma busca simulada (para salvar a pesquisa no modo local). */
+export function requisicaoDaBusca(id: string): RequisicaoBusca | null {
+  return jobs.get(id)?.req ?? null;
+}

@@ -80,8 +80,23 @@ A busca simulada e o backend da VPS usam essas mesmas funções: o build do back
      preencha as observações e clique em **Salvar análise**.
 6. **Incluir na avaliação.** Em cada imóvel que vai para a planilha, clique em **Incluir na avaliação**
    (ou **Excluir da avaliação** para descartar).
-7. **Exportar.** Use **CSV** ou **XLSX** no topo da lista. Sai **somente** o que está marcado como "Incluir na avaliação".
-   Sem nenhum marcado, os botões ficam desativados.
+7. **Salvar a pesquisa.** Ao marcar o primeiro imóvel o app pede um nome (ex.: "Casa Adriana"); também dá para usar
+   **Salvar pesquisa**. A pesquisa guarda os imóveis, os filtros e a seleção, e cada marcação seguinte é gravada na hora.
+   Em **Pesquisas salvas** (no topo) dá para abrir, e o app volta direto na aba Selecionados, sem buscar de novo.
+8. **Exportar.** Use **CSV** ou **XLSX** no topo da lista. Sai **somente** o que está marcado como "Incluir na avaliação"
+   na pesquisa aberta. Sem nenhum marcado, os botões ficam desativados.
+
+### Pesquisas salvas
+
+- A seleção (incluído/excluído) é **de cada pesquisa**: "Casa Adriana" e "Apartamento Joana" não se misturam. A análise da
+  avaliadora (estado IBAPE, padrão, observações) continua sendo **do imóvel** e aparece em qualquer pesquisa em que ele estiver.
+- Validade: **30 dias desde a última alteração** (nome, resultados ou seleção). Depois disso o backend apaga.
+- Pesquisar de novo com uma pesquisa aberta pergunta se os resultados são para ela (os já incluídos/excluídos continuam) ou
+  para uma pesquisa nova.
+- Sem pesquisa salva, a seleção fica só na tela: o app avisa e pede confirmação antes de perder.
+- A planilha é gerada de novo a cada exportação, com o nome da pesquisa no arquivo (`casa-adriana-2026-10-28.xlsx`).
+- Os resultados são copiados pelo backend a partir da busca (`buscas`), por isso é preciso salvar até 6 h depois de pesquisar.
+- A antiga marcação única por imóvel (`avaliacoes_imovel.incluido_avaliacao`) não é mais usada pela tela; fica no banco.
 
 ### Colunas da planilha
 
