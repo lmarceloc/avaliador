@@ -8,7 +8,9 @@ src/index.ts        sobe a API, aplica as migrações, encerra buscas órfãs e 
 src/servidor.ts     rotas HTTP
 src/buscas.ts       validação, cache de 6 h e coleta em segundo plano (era o workflow do n8n)
 src/coleta.ts       roda os conectores e o pipeline de web/src/lib/regras.ts
-src/conectores.js   conectores das 12 imobiliárias (mesmo código que rodava no nó Code do n8n)
+src/conectores.js   cadastro das fontes por cidade + conectores de Ponta Grossa (mesmo código que rodava no nó Code do n8n)
+src/conectores-curitiba.js  conectores de Curitiba, um por plataforma (PipeImob/Rede UNA, IC Informática, Tecimob, Supremo, Imobibrasil)
+src/conectores-base.js      utilitários comuns (cliente HTTP com ritmo, números/áreas BR, texto do anúncio, imóvel base)
 src/avaliacoes.ts   análise da avaliadora
 src/analises.ts     registros da sugestão por fotos (analises_foto, logs, triagens do Jev)
 src/usuarios.ts     usuários do site: hash scrypt, login com bloqueio, cadastro
@@ -91,6 +93,8 @@ DATABASE_URL=postgres://... API_KEY=<24+ caracteres> npm run dev      # API em h
 DATABASE_URL_TESTE=postgres://.../avaliador_teste npm test             # APAGA o banco indicado
 npm run typecheck
 FONTES=flow,kikina npm run testar-coleta                                 # conectores reais, sem banco
+npm run testar-coleta caminho/requisicao.json                            # outra cidade/finalidade: "cidade" e "filtros.finalidade" no JSON
+npx tsx --test test/cidades.test.ts                                      # cidade e venda/locação, sem banco
 ```
 
 No front, aponte `BACKEND_URL=http://localhost:3000` e `BACKEND_API_KEY` no `web/.env.local`.

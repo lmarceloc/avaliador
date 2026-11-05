@@ -200,7 +200,10 @@ export function DetalheImovel({ imovel: i, avaliacao, onFechar, onSalvar, onAnte
           <div className="flex min-w-0 flex-col gap-5">
             <section className="rounded-lg border border-line bg-surface p-4">
               <p className="text-xs font-medium uppercase tracking-wide text-ink-3">{ROTULO_TIPO[i.tipo]} · {i.endereco.bairro ?? "Bairro não informado"}</p>
-              <p className="mt-1 text-2xl font-semibold tabular">{moeda(i.preco_total)}</p>
+              <p className="mt-1 text-2xl font-semibold tabular">
+                {moeda(i.preco_total)}
+                {i.finalidade === "locacao" && <span className="text-base font-normal text-ink-2"> /mês (aluguel)</span>}
+              </p>
               <p className="text-sm text-ink-2 tabular">{i.preco_m2 !== null ? `${moeda(i.preco_m2)}/m²` : "Preço/m² indisponível (sem área construída)"}</p>
               <a
                 href={i.url_anuncio} target="_blank" rel="noopener noreferrer"
@@ -229,7 +232,7 @@ export function DetalheImovel({ imovel: i, avaliacao, onFechar, onSalvar, onAnte
                 <Linha rotulo="Bairro" valor={i.endereco.bairro ?? "—"} />
                 <Linha rotulo="Área construída" valor={m2(i.area_construida_m2)} />
                 <Linha rotulo="Área do terreno" valor={m2(i.area_terreno_m2)} />
-                <Linha rotulo="Preço total" valor={moeda(i.preco_total)} />
+                <Linha rotulo={i.finalidade === "locacao" ? "Aluguel mensal" : "Preço total"} valor={moeda(i.preco_total)} />
                 <Linha rotulo="Preço/m²" valor={moeda(i.preco_m2)} />
                 <Linha rotulo="Pavimentos" valor={numero(i.pavimentos)} />
                 <Linha rotulo="Condomínio" valor={simNao(i.condominio)} />

@@ -1,7 +1,7 @@
 // POST /buscas e GET /buscas/:id (seções 5 e 6.4). Era o fluxo "Busca de Imóveis" do n8n:
 // valida, consulta o cache de 6 h, responde "processando" na hora e coleta em segundo plano.
 import type { FonteResumo, RequisicaoBusca, RespostaBusca } from "../../web/src/lib/contrato";
-import { NOMES } from "./conectores.js";
+import { CIDADE_DA_FONTE, CIDADES, NOMES } from "./conectores.js";
 import type { Db } from "./db";
 import type { ResultadoColeta } from "./coleta";
 
@@ -48,9 +48,16 @@ export function validarRequisicao(corpo: unknown): Validada {
   else if (!Array.isArray(req.fontes) || req.fontes.length === 0) erro = "Selecione ao menos uma fonte";
   else if (req.fontes.some((f: unknown) => !FONTES_CADASTRADAS.includes(f as string)))
     erro = "Fonte desconhecida: " + req.fontes.filter((f: unknown) => !FONTES_CADASTRADAS.includes(f as string)).join(", ");
+  else if (req.cidade != null && !CIDADES.includes(req.cidade)) erro = `Cidade não atendida: ${req.cidade}. Cidades: ${CIDADES.join(", ")}`;
+  else if (req.fontes.some((f: string) => CIDADE_DA_FONTE[f] !== (req.cidade || "Ponta Grossa")))
+    erro = `Fonte de outra cidade: ${req.fontes.filter((f: string) => CIDADE_DA_FONTE[f] !== (req.cidade || "Ponta Grossa")).join(", ")}`;
+  else if (req.filtros.finalidade != null && !["venda", "locacao"].includes(req.filtros.finalidade))
+    erro = 'filtros.finalidade deve ser "venda" ou "locacao"';
 
   const f = req.filtros || {};
   const filtros = {
+    // Pesquisas e requisições antigas não têm o campo: valem como venda.
+    finalidade: f.finalidade === "locacao" ? "locacao" : "venda",
     tipos: (f.tipos || []).slice().sort(),
     bairros: (f.bairros || []).slice().sort(),
     area_construida: faixa(f.area_construida),
@@ -68,7 +75,7 @@ export function validarRequisicao(corpo: unknown): Validada {
   const fontes: string[] = Array.isArray(req.fontes) ? req.fontes.slice().sort() : [];
   return {
     erro,
-    requisicao: { ...req, filtros: { ...filtros, tipos: f.tipos || [], bairros: f.bairros || [] } },
+    requisicao: { ...req, cidade: req.cidade || "Ponta Grossa", uf: req.uf || "PR", filtros: { ...filtros, tipos: f.tipos || [], bairros: f.bairros || [] } },
     chave_cache: hash(JSON.stringify({ cidade: req.cidade || "Ponta Grossa", fontes, filtros })),
     fontes_iniciais: (Array.isArray(req.fontes) ? req.fontes : []).map((id: string) => ({
       id, nome: (NOMES as Record<string, string>)[id] || id, status: "buscando", itens: 0,

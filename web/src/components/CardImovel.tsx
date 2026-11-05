@@ -129,7 +129,10 @@ export function CardImovel({ imovel: i, avaliacao, onAbrir, onIncluir }: Props) 
         </button>
 
         <div className="flex items-baseline justify-between gap-2">
-          <p className="text-xl font-semibold tabular">{moeda(i.preco_total)}</p>
+          <p className="text-xl font-semibold tabular">
+            {moeda(i.preco_total)}
+            {i.finalidade === "locacao" && <span className="text-sm font-normal text-ink-2">/mês</span>}
+          </p>
           <p className="text-sm text-ink-2 tabular">{i.preco_m2 !== null ? `${moeda(i.preco_m2)}/m²` : "— /m²"}</p>
         </div>
 

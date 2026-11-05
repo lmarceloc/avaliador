@@ -11,7 +11,7 @@ import {
   type RespostaBusca,
   type TipoImovel,
 } from "@/lib/contrato";
-import { FONTES_ATIVAS, nomeFonte } from "@/lib/fontes";
+import { CIDADE_PADRAO, cidadeDasFontes, fontesDaCidade, nomeFonte, ufDaCidade, type Cidade } from "@/lib/fontes";
 import { exportarCsv, exportarXlsx, selecionarParaExportar } from "@/lib/exportar";
 import { ROTULO_TIPO } from "@/lib/formatar";
 import { juntarRespostas, type PesquisaSalva, type ResumoPesquisa, type Selecao } from "@/lib/pesquisas";
@@ -108,12 +108,15 @@ function ProgressoFontes({ fontes }: { fontes: FonteResumo[] }) {
   );
 }
 
-function novaRequisicao(filtros: Filtros, fontes: string[], atualizar: boolean): RequisicaoBusca {
+/** Fontes marcadas por padrão ao abrir o app ou trocar de cidade: todas as ativas da cidade. */
+const fontesPadrao = (cidade: string) => fontesDaCidade(cidade).filter((f) => f.ativa).map((f) => f.id);
+
+function novaRequisicao(filtros: Filtros, fontes: string[], atualizar: boolean, cidade: string): RequisicaoBusca {
   return {
     requisicao_id: crypto.randomUUID(),
-    cidade: "Ponta Grossa",
-    uf: "PR",
-    filtros,
+    cidade,
+    uf: ufDaCidade(cidade),
+    filtros: { ...filtros, finalidade: filtros.finalidade ?? "venda" },
     fontes,
     atualizar_cache: atualizar,
     solicitado_em: new Date().toISOString(),
@@ -126,7 +129,8 @@ const fontesIniciais = (ids: string[]): FonteResumo[] =>
 /** menuUsuario: nome de quem está logado, com "Trocar senha" e "Sair" (vazio quando o site roda sem login). */
 export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
   const [filtros, setFiltros] = useState<Filtros>(FILTROS_VAZIOS);
-  const [fontes, setFontes] = useState<string[]>(FONTES_ATIVAS.map((f) => f.id));
+  const [cidade, setCidade] = useState<Cidade>(CIDADE_PADRAO);
+  const [fontes, setFontes] = useState<string[]>(() => fontesPadrao(CIDADE_PADRAO));
   const [estado, setEstado] = useState<Estado>("ocioso");
   const [resposta, setResposta] = useState<RespostaBusca | null>(null);
   const [progresso, setProgresso] = useState<FonteResumo[]>([]);
@@ -215,9 +219,12 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
     const p = await json<PesquisaSalva>(await fetch(`/api/pesquisas/${encodeURIComponent(id)}`, { cache: "no-store" }));
     buscaAtual.current = null;
     aplicarPesquisa(p);
-    setFiltros(p.filtros);
+    // A pesquisa salva guarda filtros e fontes; a cidade sai das fontes e a finalidade ausente vale como venda.
+    const cidadeSalva = cidadeDasFontes(p.fontes);
+    setCidade(cidadeSalva);
+    setFiltros({ ...p.filtros, finalidade: p.filtros.finalidade ?? "venda" });
     setFontes(p.fontes);
-    ultimaReq.current = novaRequisicao(p.filtros, p.fontes, false);
+    ultimaReq.current = novaRequisicao(p.filtros, p.fontes, false, cidadeSalva);
     setEstado("pronto");
     setErroGeral(null);
     setRapidos(RAPIDOS_INICIAIS);
@@ -249,6 +256,14 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
     await carregarPesquisas();
   }
 
+  /** Outra cidade: bairros e fontes são de cada cidade, então a seleção de bairros zera e as fontes voltam ao padrão. */
+  function trocarCidade(nova: Cidade) {
+    if (nova === cidade) return;
+    setCidade(nova);
+    setFontes(fontesPadrao(nova));
+    setFiltros((f) => ({ ...f, bairros: [] }));
+  }
+
   /** Botão Pesquisar: com pesquisa aberta, pergunta se os resultados são para ela ou para outra avaliação. */
   function pesquisar(atualizar: boolean) {
     if (pesquisa) return setDialogo({ tipo: "nova-busca", atualizar });
@@ -257,7 +272,7 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
   }
 
   async function rodarBusca(atualizar: boolean, destino: PesquisaAberta | null) {
-    const req = novaRequisicao(filtros, fontes, atualizar);
+    const req = novaRequisicao(filtros, fontes, atualizar, cidade);
     buscaAtual.current = req.requisicao_id;
     ultimaReq.current = req;
     if (!destino) {
@@ -313,7 +328,7 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
     if (!base || !resposta) return;
     setRepetindo(fonteId);
     try {
-      const req = novaRequisicao(base.filtros, [fonteId], true);
+      const req = novaRequisicao(base.filtros, [fonteId], true, base.cidade);
       const r = await executarBusca(req, () => {}, () => false);
       setResposta((atual) => (atual ? juntarRespostas(atual, r) : atual));
       if (pesquisa)
@@ -475,6 +490,7 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
           </div>
           <div className="px-5 pt-5">
             <PainelFiltros
+              cidade={cidade} onCidade={trocarCidade}
               filtros={filtros} onFiltros={setFiltros} fontes={fontes} onFontes={setFontes}
               buscando={estado === "carregando"} onPesquisar={pesquisar} temResultado={resposta !== null}
             />

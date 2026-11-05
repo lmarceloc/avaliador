@@ -4,107 +4,51 @@
 // Cada conector devolve { imoveis, erro } com imóveis no formato do contrato (seção 5.2),
 // ainda sem criterios/status: isso é feito depois por processarImoveis().
 
-const ENTIDADES = {
-  aacute: "á", eacute: "é", iacute: "í", oacute: "ó", uacute: "ú", Aacute: "Á", Eacute: "É", Iacute: "Í", Oacute: "Ó", Uacute: "Ú",
-  acirc: "â", ecirc: "ê", ocirc: "ô", Acirc: "Â", Ecirc: "Ê", Ocirc: "Ô", atilde: "ã", otilde: "õ", Atilde: "Ã", Otilde: "Õ",
-  ccedil: "ç", Ccedil: "Ç", agrave: "à", Agrave: "À", ordm: "º", ordf: "ª", deg: "°", sup2: "²", nbsp: " ",
-};
 
-/** Texto da página com as tags trocadas por " | " (facilita casar "3 | Quartos"). */
-function textoPipes(html) {
-  return String(html)
-    .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " | ")
-    .replace(/&([a-zA-Z]+\d?);/g, (m, n) => ENTIDADES[n] ?? decodificar(m))
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-    .replace(/&amp;/g, "&")
-    .replace(/\s+/g, " ")
-    .replace(/(\s*\|\s*)+/g, " | ");
-}
-
-/** Bytes → texto ISO-8859-1 (cada byte é um caractere). Sem Buffer/TextDecoder, que nem todo sandbox tem. */
-function latin1(bytes) {
-  const u = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  let s = "";
-  for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i + 8192));
-  return s;
-}
-
-/** Área: aceita "1.006,00", "127.10" e "120". */
-function area(s) {
-  if (s == null) return null;
-  const t = String(s).trim();
-  if (/^\d+\.\d{1,2}$/.test(t)) return Number(t);
-  return numeroBR(t);
-}
-
-const NAO_RESIDENCIAL = /(^|-)(comercial|barracao|galpao|armazem|sala|loja|ponto|predio|chacara|sitio|fazenda|rural|area-rural|industrial|hotel|pousada|garagem|box)(-|$)/;
-
-/** Tipo do contrato a partir de um texto livre (rótulo ou slug do link). */
-function tipoDeTexto(s) {
-  const t = slug(s || "");
-  if (/(^|-)(apartamento|cobertura|kitnet|kitinet|kitinete|studio|flat|loft|duplex)(-|$)/.test(t)) return "apartamento";
-  if (NAO_RESIDENCIAL.test(t)) return null;
-  if (/(^|-)(terreno|lote|loteamento)(-|$)/.test(t)) return "terreno";
-  if (/(^|-)(casa|sobrado|residencia|condominio-fechado|geminado)(-|$)/.test(t)) return "casa";
-  return null;
-}
-
-/** true se não há filtro de bairro ou se o bairro (ou o slug do link) contém um dos pedidos. */
-function bairroPedido(filtros, texto) {
-  if (!filtros.bairros.length) return true;
-  const alvo = `-${slug(texto || "")}-`;
-  return filtros.bairros.some((b) => alvo.includes(`-${slug(b)}-`));
-}
-
-const deSlug = (s) => String(s || "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()).trim() || null;
-
-/** Primeiro número que aparece antes de um rótulo no texto com pipes: "3 | Quartos". */
-function antesDe(texto, rotulo) {
-  const m = texto.match(new RegExp(`(\\d+)\\s*\\|?\\s*${rotulo}`, "i"));
-  return m ? Number(m[1]) : null;
-}
-
-function parseJsonSeguro(s) {
-  try {
-    return JSON.parse(s.replace(/[\u0000-\u001F]+/g, " "));
-  } catch {
-    return null;
-  }
-}
-
-/** Lê um objeto JSON balanceado começando em `inicio` (para extrair dados embutidos em scripts). */
-function objetoJson(txt, inicio) {
-  let prof = 0, emString = false, escape = false;
-  for (let i = inicio; i < txt.length; i++) {
-    const c = txt[i];
-    if (emString) {
-      if (escape) escape = false;
-      else if (c === "\\") escape = true;
-      else if (c === '"') emString = false;
-    } else if (c === '"') emString = true;
-    else if (c === "{") prof++;
-    else if (c === "}" && --prof === 0) return parseJsonSeguro(txt.slice(inicio, i + 1));
-  }
-  return null;
-}
-
-function erroLayout(msg) {
-  return Object.assign(new Error(`Possível mudança de layout: ${msg}`), { codigo: "LAYOUT" });
-}
-
-/** Abre os anúncios em sequência (respeitando o ritmo) e aplica `aplicar` em cada um. */
-async function abrirDetalhes(def, lista, { get, cfg, sinal, log }, aplicar, opcoes = {}) {
-  for (const im of lista.slice(0, cfg.max_detalhes)) {
-    if (sinal.abortado) break;
-    try {
-      const bruto = await get(im.url_anuncio, { headers: { "User-Agent": UA }, ...opcoes });
-      aplicar(im, opcoes.binario ? latin1(bruto) : String(bruto));
-    } catch (e) {
-      log(`${def.id}: falha no detalhe ${im.url_anuncio}: ${e.message}`);
-    }
-  }
-}
+import {
+  UA,
+  ehLocacao,
+  CONFIG_PADRAO,
+  CONFIG_POR_FONTE,
+  dormir,
+  decodificar,
+  textoLimpo,
+  numeroBR,
+  ouNulo,
+  slug,
+  separarEndereco,
+  limparLogradouro,
+  Parametros,
+  cliente,
+  imovelBase,
+  RE_PISCINA,
+  RE_LAZER,
+  SO_POTENCIAL,
+  NEGADO_DEPOIS,
+  citaItem,
+  NUM_AREA,
+  RE_TERRENO_ROTULO,
+  RE_TERRENO_M2,
+  RE_TERRENO_MEDIDAS,
+  terrenoDoTexto,
+  lerTextoAnuncio,
+  chavesVerdadeiras,
+  priorizarDetalhes,
+  ENTIDADES,
+  textoPipes,
+  latin1,
+  area,
+  NAO_RESIDENCIAL,
+  tipoDeTexto,
+  bairroPedido,
+  deSlug,
+  antesDe,
+  parseJsonSeguro,
+  objetoJson,
+  erroLayout,
+  abrirDetalhes,
+} from "./conectores-base.js";
+import { FONTES_CURITIBA } from "./conectores-curitiba.js";
 
 // ======================================================================
 // Imobiliária Casa Top — plataforma Jetimob (Next.js). Os imóveis vêm completos
@@ -131,7 +75,7 @@ function nextData(html) {
   return d.props.pageProps;
 }
 
-function imovelCasaTop(p) {
+function imovelCasaTop(p, locacao) {
   const at = (k) => {
     const a = (p.attributes || []).find((x) => x.key === k);
     return a ? a.value : null;
@@ -155,7 +99,7 @@ function imovelCasaTop(p) {
       endereco: { logradouro: at("street") || null, numero: at("number") ? String(at("number")) : null, numero_informado: Boolean(at("number")), bairro: at("district") || null, cidade: at("city") || "Ponta Grossa", uf: at("state") || "PR" },
       area_construida_m2: tipo === "terreno" ? null : construida,
       area_terreno_m2: tipo === "apartamento" ? null : tipo === "terreno" ? terreno ?? ouNulo(at("total-area")) : terreno,
-      preco_total: ouNulo(at("valor_venda")),
+      preco_total: ouNulo(at(locacao ? "valor_locacao" : "valor_venda")),
       dormitorios: tipo === "terreno" ? null : ouNulo(at("bedrooms")),
       suites: tipo === "terreno" ? null : ouNulo(at("suites")),
       banheiros: tipo === "terreno" ? null : ouNulo(at("bathrooms")),
@@ -177,10 +121,12 @@ const textoJetimob = (p) => `${p.description || ""} | ${chavesVerdadeiras((p.att
 // Listagem com os imóveis completos no __NEXT_DATA__ (Casa Top e Montoro): `def` traz base e tipos do site.
 const criarConectorListagemNext = (def, imovelDe) => async function conectorListagemNext({ filtros, http, cfg, sinal, log }) {
   const get = cliente(http, cfg, sinal);
+  const locacao = ehLocacao(filtros);
+  const operacao = locacao ? "rent" : "sale";
   const vistos = new Map();
   let paginas = 0;
   for (const tipoSite of [...new Set(filtros.tipos.flatMap((t) => def.tipos[t] || []))]) {
-    const base = `${def.base}/imoveis?type=${encodeURIComponent(tipoSite)}&operation=sale&order=price-asc`;
+    const base = `${def.base}/imoveis?type=${encodeURIComponent(tipoSite)}&operation=${operacao}&order=price-asc`;
     const primeira = nextData(await get(base, { headers: { "User-Agent": UA } }));
     paginas++;
     // O filtro exige o nome exato do bairro como o site grava ("Orfãs", "Cará-cará"...): usa a lista da própria página.
@@ -196,7 +142,7 @@ const criarConectorListagemNext = (def, imovelDe) => async function conectorList
       for (let pag = 1; pag <= cfg.max_paginas; pag++) {
         const pp = !distrito && pag === 1 ? primeira : nextData(await get(`${url}&page=${pag}`, { headers: { "User-Agent": UA } }));
         if (distrito || pag > 1) paginas++;
-        for (const p of pp.properties || []) if (p.operation === "sale" && !vistos.has(p.reference)) vistos.set(p.reference, imovelDe(p));
+        for (const p of pp.properties || []) if (p.operation === operacao && !vistos.has(p.reference)) vistos.set(p.reference, imovelDe(p, locacao));
         const info = pp.pageInfo || {};
         if (!info.total || pag >= info.total) break;
       }
@@ -224,7 +170,7 @@ const MONTORO = {
   tipos: { casa: ["Casa"], apartamento: ["Apartamento"], terreno: ["Terreno"] },
 };
 
-function imovelMontoro(p) {
+function imovelMontoro(p, locacao) {
   const at = (k) => {
     const a = (p.attributes || []).find((x) => x.key === k);
     return a ? a.value : null;
@@ -253,7 +199,7 @@ function imovelMontoro(p) {
       },
       area_construida_m2: tipo === "terreno" ? null : construida,
       area_terreno_m2: tipo === "terreno" ? ouNulo(area(at("total-area"))) ?? ouNulo(area(at("land-area"))) : null,
-      preco_total: ouNulo(at("value")),
+      preco_total: ouNulo(locacao ? at("rent-value") ?? at("value") : at("value")),
       dormitorios: tipo === "terreno" ? null : ouNulo(at("bedrooms")),
       suites: tipo === "terreno" ? null : ouNulo(at("suites")),
       banheiros: tipo === "terreno" ? null : ouNulo(at("bathrooms")),
@@ -307,7 +253,7 @@ function aplicarDetalheClassica(im, html) {
   Object.assign(im, {
     titulo: (obj.title || im.titulo).trim(),
     tipo,
-    preco_total: ouNulo(obj.value),
+    preco_total: im._locacao ? ouNulo(obj["rent-value"]) ?? ouNulo(obj.value) : ouNulo(obj.value),
     area_construida_m2: tipo === "terreno" ? null : ouNulo(area(obj["constructed-area"])) ?? ouNulo(area(obj["private-area"])),
     area_terreno_m2: tipo === "apartamento" ? null : ouNulo(area(obj["total-area"])) ?? ouNulo(area(obj["land-area"])),
     dormitorios: tipo === "terreno" ? null : ouNulo(obj.bedrooms),
@@ -336,10 +282,13 @@ async function conectorClassica({ filtros, http, cfg, sinal, log }) {
   const xml = String(await get(`${CLASSICA.base}/sitemap/property`, { headers: { "User-Agent": UA } }));
   const links = [...xml.matchAll(/<loc>(https:\/\/classicaimoveis\.com\.br\/imovel\/([^/<]+)\/(\d+))<\/loc>/g)];
   if (!links.length) throw erroLayout("sitemap sem anúncios");
+  // O slug traz a finalidade: "casa-a-venda-no-…", "apartamento-para-locacao-na-…", "casa-para-alugar-…".
+  const locacao = ehLocacao(filtros);
+  const marca = locacao ? /-para-(?:locacao|alugar)(?=-|$)/ : /-(?:a|para)-venda(?=-|$)/;
   const candidatos = links
-    .filter(([, , s]) => /(^|-)(a|para)-venda(-|$)/.test(s) && !/locacao/.test(s))
-    .map(([, url, s, ref]) => ({ url, s, ref, tipo: tipoDeTexto(s.split(/-(?:a|para)-venda/)[0]) }))
-    .filter((c) => c.tipo && filtros.tipos.includes(c.tipo) && bairroPedido(filtros, c.s.split(/-(?:a|para)-venda/)[1]))
+    .filter(([, , s]) => marca.test(s) && (locacao || !/locacao|alugar/.test(s)))
+    .map(([, url, s, ref]) => ({ url, s, ref, tipo: tipoDeTexto(s.split(marca)[0]) }))
+    .filter((c) => c.tipo && filtros.tipos.includes(c.tipo) && bairroPedido(filtros, c.s.split(marca)[1]))
     .sort((a, b) => Number(b.ref) - Number(a.ref)); // mais recentes primeiro
 
   const imoveis = candidatos.map((c) =>
@@ -350,12 +299,13 @@ async function conectorClassica({ filtros, http, cfg, sinal, log }) {
         url_anuncio: c.url,
         titulo: deSlug(c.s),
         tipo: c.tipo,
-        endereco: { logradouro: null, numero: null, numero_informado: false, bairro: deSlug(c.s.replace(/^.*?-(?:a|para)-venda-(?:em|no|na|nos|nas)-/, "")), cidade: "Ponta Grossa", uf: "PR" },
+        endereco: { logradouro: null, numero: null, numero_informado: false, bairro: deSlug(c.s.split(marca)[1].replace(/^-(?:em|no|na|nos|nas)-/, "")), cidade: "Ponta Grossa", uf: "PR" },
         area_construida_m2: null,
         area_terreno_m2: null,
         preco_total: null,
         dormitorios: null,
         _ref: c.ref,
+        _locacao: locacao,
       },
     ),
   );
@@ -364,12 +314,12 @@ async function conectorClassica({ filtros, http, cfg, sinal, log }) {
   // Sem a página do anúncio não há preço nem área: fica de fora.
   return imoveis
     .filter((i) => i.detalhe_coletado && slug(i.endereco.cidade) === "ponta-grossa")
-    .map((i) => { delete i._ref; return i; });
+    .map((i) => { delete i._ref; delete i._locacao; return i; });
 }
 
 // ======================================================================
 // Madol Imóveis — plataforma Praedium. Cards com JSON-LD (schema.org Product);
-// /imoveis/a-venda/ponta-grossa-pr/{bairro}?pagina=N
+// /imoveis/{a-venda|para-alugar}/ponta-grossa-pr/{bairro}?pagina=N
 // ======================================================================
 
 const MADOL = { id: "madol", nome: "Madol Imóveis", base: "https://madolimoveis.com.br", contato: "(42) 3027-3595" };
@@ -386,7 +336,7 @@ function produtosJsonLd(html) {
 function imovelMadol(d) {
   const url = d.offers.url;
   const slugUrl = url.split("/imovel/")[1] || "";
-  const tipo = tipoDeTexto(slugUrl.split("-a-venda")[0]);
+  const tipo = tipoDeTexto(slugUrl.split(/-(?:a-venda|para-alugar)/)[0]);
   const bairro = ((d.name || "").match(/ em (.+?), /) || [])[1] || null;
   const imagem = typeof d.image === "string" ? d.image : Array.isArray(d.image) ? d.image[0] : null;
   return imovelBase(
@@ -442,9 +392,10 @@ function aplicarDetalheMadol(im, html) {
 
 async function conectorMadol({ filtros, http, cfg, sinal, avaliar, log }) {
   const get = cliente(http, cfg, sinal);
+  const finalidade = ehLocacao(filtros) ? "para-alugar" : "a-venda";
   const bases = filtros.bairros.length
-    ? filtros.bairros.map((b) => `${MADOL.base}/imoveis/a-venda/ponta-grossa-pr/${slug(b)}`)
-    : [`${MADOL.base}/imoveis/a-venda/ponta-grossa-pr`];
+    ? filtros.bairros.map((b) => `${MADOL.base}/imoveis/${finalidade}/ponta-grossa-pr/${slug(b)}`)
+    : [`${MADOL.base}/imoveis/${finalidade}/ponta-grossa-pr`];
   const vistos = new Map();
   let paginas = 0;
   let reconhecida = false;
@@ -475,7 +426,7 @@ async function conectorMadol({ filtros, http, cfg, sinal, avaliar, log }) {
 
 // ======================================================================
 // Tavarnaro Consultoria — plataforma Kurole, HTML em ISO-8859-1.
-// /comprar/Ponta-Grossa/{Casa|Sobrado|Apartamento|Terreno}?pag=N
+// /{comprar|alugar}/Ponta-Grossa/{Casa|Sobrado|Apartamento|Terreno}?pag=N
 // ======================================================================
 
 const TAVARNARO = {
@@ -496,7 +447,7 @@ function aplicarDetalheTavarnaro(im, html) {
   const t = textoPipes(html);
   const titulo = decodificar((html.match(/<meta property="og:title" content="([^"]+)"/) || [])[1] || "");
   if (titulo) im.titulo = textoPipes(titulo).replace(/^\s*\|\s*|\s*\|\s*$/g, "");
-  const preco = t.match(/\|\s*Venda\s*\|\s*([\d.]+,\d{2})/);
+  const preco = t.match(/\/alugar\//.test(im.url_anuncio) ? /\|\s*Aluguel\s*\|\s*([\d.]+,\d{2})/ : /\|\s*Venda\s*\|\s*([\d.]+,\d{2})/);
   im.preco_total = preco ? ouNulo(numeroBR(preco[1])) : im.preco_total;
   const m2 = (rotulo) => {
     const m = t.match(new RegExp(`([\\d.,]+)\\s*m²\\s*\\|\\s*${rotulo}`, "i"));
@@ -526,13 +477,14 @@ async function conectorTavarnaro({ filtros, http, cfg, sinal, log }) {
   const get = cliente(http, cfg, sinal);
   const vistos = new Map();
   let paginas = 0;
+  const finalidade = ehLocacao(filtros) ? "alugar" : "comprar";
   for (const tipoSite of [...new Set(filtros.tipos.flatMap((t) => TAVARNARO.tipos[t] || []))]) {
     for (let pag = 1; pag <= cfg.max_paginas; pag++) {
-      const url = `${TAVARNARO.base}/comprar/Ponta-Grossa/${tipoSite}${pag > 1 ? `?pag=${pag}` : ""}`;
+      const url = `${TAVARNARO.base}/${finalidade}/Ponta-Grossa/${tipoSite}${pag > 1 ? `?pag=${pag}` : ""}`;
       const html = latin1(await get(url, { headers: { "User-Agent": UA }, binario: true }));
       paginas++;
       let novos = 0;
-      for (const m of html.matchAll(/href="(\/comprar\/Ponta-Grossa\/([A-Za-z]+)\/([A-Za-z]+)\/([^"/]+)\/(\d+))"/g)) {
+      for (const m of html.matchAll(new RegExp(`href="(/${finalidade}/Ponta-Grossa/([A-Za-z]+)/([A-Za-z]+)/([^"/]+)/(\\d+))"`, "g"))) {
         const [, caminho, tipoUrl, sub, bairroUrl, id] = m;
         if (vistos.has(id)) continue;
         novos++;
@@ -565,7 +517,7 @@ async function conectorTavarnaro({ filtros, http, cfg, sinal, log }) {
 
 // ======================================================================
 // Imobiliária Aspen — plataforma Imonov/si9.
-// /filtro2/list/venda/{tipo}/todas/todos/{min}-{max}/todos/todos/{pagina}
+// /filtro2/list/{venda|locacao}/{tipo}/todas/todos/{min}-{max}/todos/todos/{pagina}
 // Obs.: o site expõe credenciais do sistema si9 no JS público. NÃO são usadas aqui.
 // ======================================================================
 
@@ -586,7 +538,7 @@ function aplicarDetalheAspen(im, html) {
   const t = textoPipes(html);
   const titulo = (html.match(/<meta property="og:title" content="([^"]+)"/) || [])[1];
   if (titulo) im.titulo = decodificar(titulo).replace(/\s*-\s*Imobili[áa]ria Aspen\s*$/i, "");
-  const preco = t.match(/Venda:\s*R\$\s*([\d.]+,\d{2})/);
+  const preco = t.match(/\/imovel\/locacao\//.test(im.url_anuncio) ? /Loca[çc][ãa]o:\s*R\$\s*([\d.]+,\d{2})/ : /Venda:\s*R\$\s*([\d.]+,\d{2})/);
   im.preco_total = preco ? ouNulo(numeroBR(preco[1])) : null;
   const m2 = (rotulo) => {
     const m = t.match(new RegExp(`([\\d.,]+)\\s*m²\\s*\\|\\s*\\(m²\\)\\s*${rotulo}`, "i"));
@@ -616,14 +568,15 @@ async function conectorAspen({ filtros, http, cfg, sinal, log }) {
   const get = cliente(http, cfg, sinal);
   const min = Math.round(filtros.preco_total.min ?? 0);
   const max = Math.round(filtros.preco_total.max ?? 100000000);
+  const finalidade = ehLocacao(filtros) ? "locacao" : "venda";
   const vistos = new Map();
   let paginas = 0;
   for (const tipoSite of [...new Set(filtros.tipos.flatMap((t) => ASPEN.tipos[t] || []))]) {
     for (let pag = 1; pag <= cfg.max_paginas; pag++) {
-      const html = String(await get(`${ASPEN.base}/filtro2/list/venda/${tipoSite}/todas/todos/${min}-${max}/todos/todos/${pag}`, { headers: { "User-Agent": UA } }));
+      const html = String(await get(`${ASPEN.base}/filtro2/list/${finalidade}/${tipoSite}/todas/todos/${min}-${max}/todos/todos/${pag}`, { headers: { "User-Agent": UA } }));
       paginas++;
       let novos = 0;
-      for (const m of html.matchAll(/https:\/\/www\.imobiliariaaspen\.com\.br\/imovel\/venda\/([^"/]+)\/([^"/]+)\/([^"/]+)\/([^"/]+)\/(\d+)/g)) {
+      for (const m of html.matchAll(new RegExp(`https://www\\.imobiliariaaspen\\.com\\.br/imovel/${finalidade}/([^"/]+)/([^"/]+)/([^"/]+)/([^"/]+)/(\\d+)`, "g"))) {
         const [url, tipoUrl, cidade, bairroUrl, , id] = m;
         if (vistos.has(id)) continue;
         novos++;
@@ -654,193 +607,6 @@ async function conectorAspen({ filtros, http, cfg, sinal, log }) {
   return imoveis.filter((i) => i.detalhe_coletado).map((i) => { delete i._cidade; delete i._bairroUrl; return i; });
 }
 
-const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36 BuscaImoveisPG/1.0 (Agencia Byte)";
-
-const CONFIG_PADRAO = {
-  max_paginas: 10,       // 6.3 limite de páginas de resultado por fonte
-  max_detalhes: 50,      // páginas de detalhe abertas por fonte (galeria completa)
-  intervalo_ms: 1000,    // 6.3 ritmo: 1 a 2 s entre requisições à mesma fonte
-  timeout_req_ms: 20000,
-};
-
-// Ajustes por fonte que valem sempre (o parâmetro `config` de coletarFontes ainda pode sobrescrever).
-const CONFIG_POR_FONTE = {
-  madol: { intervalo_ms: 2000, max_detalhes: 25 }, // tem WAF com captcha: ritmo mais lento
-};
-
-const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function decodificar(s) {
-  if (s == null) return s;
-  return String(s)
-    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
-    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&sup2;/g, "²")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
-}
-
-const textoLimpo = (html) => decodificar(String(html).replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
-
-/** "R$ 4.500.000,00" → 4500000 · "1.006,00m²" → 1006 · "" → null */
-function numeroBR(s) {
-  if (s == null) return null;
-  const m = String(s).replace(/\s/g, "").match(/\d[\d.]*(,\d+)?/);
-  if (!m) return null;
-  const n = Number(m[0].replace(/\./g, "").replace(",", "."));
-  return Number.isFinite(n) ? n : null;
-}
-
-/** Zero vindo de sistema de imobiliária quase sempre significa "não informado" (regra 4.1: nunca zero). */
-const ouNulo = (n) => (n === null || n === undefined || Number.isNaN(n) || n === 0 ? null : n);
-
-const slug = (s) => String(s).normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-
-/** Separa "Avenida Anita Garibaldi, 1979" em logradouro e número. */
-function separarEndereco(s) {
-  if (!s) return { logradouro: null, numero: null };
-  const m = String(s).trim().match(/^(.*?)(?:,\s*|\s+n[ºo°]?\s*)(\d+[A-Za-z]?)\b/);
-  if (m) return { logradouro: m[1].trim(), numero: m[2] };
-  return { logradouro: String(s).trim() || null, numero: null };
-}
-
-/** Remove "s/n" e sobras do logradouro. */
-function limparLogradouro(s) {
-  if (!s) return null;
-  const l = String(s).replace(/,?\s*(s\/?n|sem n[úu]mero)\.?$/i, "").replace(/[,\s-]+$/, "").trim();
-  return l || null;
-}
-
-class Parametros {
-  constructor(inicial) { this.v = { ...inicial }; }
-  set(k, val) { this.v[k] = val; }
-  toString() { return Object.entries(this.v).map(([k, val]) => `${encodeURIComponent(k)}=${encodeURIComponent(val)}`).join("&"); }
-}
-
-function cliente(http, cfg, sinal) {
-  // GET com ritmo controlado e 1 retentativa (3 s) para erro de rede ou 5xx (6.3).
-  let ultima = 0;
-  return async function get(url, opcoes = {}) {
-    if (sinal.abortado) throw new Error("abortado");
-    const espera = ultima + cfg.intervalo_ms - Date.now();
-    if (espera > 0) await dormir(espera);
-    for (let tentativa = 0; ; tentativa++) {
-      ultima = Date.now();
-      try {
-        return await http(url, { timeout: cfg.timeout_req_ms, ...opcoes });
-      } catch (e) {
-        const status = e.httpCode || e.statusCode || e.status || (e.response && e.response.status);
-        // Proteção anti-robô (captcha/WAF): não tenta contornar; interrompe a fonte com motivo claro.
-        if (Number(status) === 405 || Number(status) === 429 || /captcha|human verification/i.test(String(e.message)))
-          throw Object.assign(new Error("o site pediu verificação humana (anti-robô); coleta interrompida — tente mais tarde"), { codigo: "BLOQUEADO" });
-        const transitorio = !status || Number(status) >= 500;
-        if (tentativa >= 1 || !transitorio || sinal.abortado) throw e;
-        await dormir(3000);
-      }
-    }
-  };
-}
-
-function imovelBase(fonte, extra) {
-  return {
-    fonte,
-    fontes_alternativas: [],
-    pavimentos: null,
-    condominio: null,
-    suites: null,
-    banheiros: null,
-    vagas_cobertas: null,
-    vagas_descobertas: null,
-    vagas_total: null,
-    area_lazer: null,
-    piscina: null,
-    padrao_acabamento_anuncio: null,
-    estado_conservacao_anuncio: null,
-    fotos: [],
-    foto_capa: null,
-    data_anuncio: null,
-    status: "normal",
-    criterios: [],
-    atende: false,
-    resumo_filtro: "",
-    campos_faltantes: [],
-    preco_m2: null,
-    coletado_em: new Date().toISOString(),
-    detalhe_coletado: false,
-    ...extra,
-  };
-}
-
-// ----------------------------------------------------------------------
-// Texto livre do anúncio (descrição + listas de características). Muitos anúncios só citam
-// piscina, churrasqueira ou a medida do terreno ("Terreno medindo 14x33m") no texto.
-// ----------------------------------------------------------------------
-
-const RE_PISCINA = /piscinas?|\bpool\b/gi;
-const RE_LAZER = /churrasqueiras?|\bbbq\b|barbecue|[áa]rea de lazer|recreation area|(?:espa[çc]o|[áa]rea|varanda) gourmet|gourmet space|sal[ãa]o de festas|quiosques?/gi;
-// "possibilidade de construção de piscina", "espaço para instalação de piscina", "sem piscina"…
-const SO_POTENCIAL = /(?:possibilidade|possibilita|permite|espa[çc]o|prepara[çc][ãa]o|preparad[oa]|projeto|sem|n[ãa]o\s+(?:possui|tem|h[áa])|construir|constru[çc][ãa]o|instala[çc][ãa]o|instalar|implanta[çc][ãa]o|implantar|fazer)\s+(?:(?:de|da|do|para|pra|p\/|a|uma|um|construir|constru[çc][ãa]o|instala[çc][ãa]o|instalar|implanta[çc][ãa]o|implantar|fazer|lazer|ou|e)\s+){0,5}$/i;
-// "Piscina: Não", "Churrasqueira: 0"
-const NEGADO_DEPOIS = /^\s*[:\-–]?\s*(?:n[ãa]o\b|0\b)/i;
-
-/** true se o texto cita o item como existente (descarta "espaço para piscina", "Piscina: Não"). */
-function citaItem(texto, re) {
-  for (const m of texto.matchAll(re)) {
-    const antes = texto.slice(Math.max(0, m.index - 80), m.index);
-    const depois = texto.slice(m.index + m[0].length, m.index + m[0].length + 10);
-    if (!SO_POTENCIAL.test(antes) && !NEGADO_DEPOIS.test(depois)) return true;
-  }
-  return false;
-}
-
-const NUM_AREA = "(\\d{1,3}(?:\\.\\d{3})+(?:,\\d+)?|\\d+(?:[.,]\\d+)?)(?![\\d.,])(?!\\s*m?\\s*[xX×]\\s*\\d)";
-const RE_TERRENO_ROTULO = new RegExp(`[áa]rea\\s+(?:total\\s+)?(?:d[oe]\\s+)?terreno\\s*:?\\s*(?:de\\s+)?(?:aprox\\.?\\s*|aproximadamente\\s+)?${NUM_AREA}`, "gi");
-const RE_TERRENO_M2 = new RegExp(`\\bterreno\\s+(?:total\\s+)?(?:de|com|medindo|possui)?\\s*(?:aprox\\.?\\s*|aproximadamente\\s+|cerca de\\s+)?${NUM_AREA}\\s*(?:m²|m2|mts|metros|m\\b)`, "gi");
-// "14,80m x 23m (340m²)": se a área vier entre parênteses, vale ela (o produto das medidas é aproximado).
-const RE_TERRENO_MEDIDAS = /\b(?:terreno|lote)\b[^.;|\n]{0,60}?(\d+(?:[.,]\d+)?)\s*(?:m|mts|metros)?\s*[xX×]\s*(\d+(?:[.,]\d+)?)\s*(?:m\b|mts|metros)?\s*(?:\(\s*([\d.,]+)\s*m[²2]\s*\))?/gi;
-
-/** Área do terreno citada no texto: "terreno de 462m²", "Área do terreno: 660,00 m²", "terreno medindo 14x33". */
-function terrenoDoTexto(texto) {
-  // "2 terrenos de 462 m2 (14x33) cada": a soma não dá para inferir com segurança.
-  if (/\b(?:\d+|dois|duas|tr[êe]s)\s+(?:terrenos|lotes)\b/i.test(texto)) return null;
-  const citados = [];
-  for (const re of [RE_TERRENO_ROTULO, RE_TERRENO_M2]) for (const m of texto.matchAll(re)) citados.push(area(m[1]));
-  for (const m of texto.matchAll(RE_TERRENO_MEDIDAS)) {
-    const [frente, fundo] = [Number(m[1].replace(",", ".")), Number(m[2].replace(",", "."))];
-    if (frente >= 3 && fundo >= 3 && frente <= 500 && fundo <= 500) citados.push(m[3] ? area(m[3]) : Math.round(frente * fundo * 100) / 100);
-  }
-  const validos = citados.filter((n) => n && n >= 40 && n <= 200000);
-  if (!validos.length) return null;
-  // Valores que não batem entre si (ex.: dois terrenos citados) ficam de fora.
-  return validos.every((n) => Math.abs(n - validos[0]) <= validos[0] * 0.03) ? validos[0] : null;
-}
-
-/**
- * Completa o imóvel com o que só aparece no texto do anúncio. Pode ser chamada mais de uma vez
- * (ex.: descrição da API e depois a página): uma citação positiva sempre vale; "Não" só onde estava vazio.
- * Terreno: só preenche quando a fonte não informou o campo.
- */
-function lerTextoAnuncio(im, texto) {
-  const t = String(texto || "").replace(/\s+/g, " ");
-  if (t.length < 30) return;
-  if (im.tipo !== "terreno") {
-    const piscina = citaItem(t, RE_PISCINA);
-    const lazer = piscina || citaItem(t, RE_LAZER);
-    im.piscina = piscina || (im.piscina ?? false);
-    im.area_lazer = lazer || (im.area_lazer ?? false);
-  }
-  if (im.tipo !== "apartamento" && im.area_terreno_m2 == null) im.area_terreno_m2 = terrenoDoTexto(t);
-}
-
-/** Atributos booleanos dos sites em Next.js ("pool", "gourmet-space") viram texto para lerTextoAnuncio. */
-const chavesVerdadeiras = (pares) => pares.filter(([, v]) => v === true || v === "True" || v === "true").map(([k]) => String(k).replace(/-/g, " ")).join(" | ");
-
-/** Ordena os candidatos: primeiro os que não reprovam em nenhum critério com os dados do card. */
-function priorizarDetalhes(imoveis, filtros, avaliar) {
-  return imoveis
-    .map((im, i) => ({ im, i, ruim: avaliar(im, filtros).criterios.filter((c) => c.resultado === "nao_atende").length }))
-    .sort((a, b) => a.ruim - b.ruim || a.i - b.i)
-    .filter((x) => x.ruim === 0)
-    .map((x) => x.im);
-}
 
 // ======================================================================
 // Plataforma SysOne (Flow, Adquira, Conceito, Taques) — HTML server-side
@@ -871,7 +637,7 @@ function urlsBuscaSysOne(base, filtros) {
   // O site aceita um bairro por vez: uma busca por bairro.
   const bairros = filtros.bairros.length ? filtros.bairros.map((b) => `bairro_${slug(b)}`) : [""];
   // cidade_ponta-grossa: Adquira e Conceito também anunciam Castro, Carambeí etc.
-  return bairros.map((b) => `${base}/busca/venda/${[...tipos, "cidade_ponta-grossa", b, ...preco, "mostrar_100"].filter(Boolean).join("/")}`);
+  return bairros.map((b) => `${base}/busca/${ehLocacao(filtros) ? "locacao" : "venda"}/${[...tipos, "cidade_ponta-grossa", b, ...preco, "mostrar_100"].filter(Boolean).join("/")}`);
 }
 
 function parseCardsFlow(html) {
@@ -1034,16 +800,20 @@ const criarConectorSysOne = (def) => async function conectorSysOne({ filtros, ht
 }
 
 // ======================================================================
-// Kikina Imóveis — plataforma CasaSoft, API JSON pública usada pelo próprio site
+// Plataforma CasaSoft (Kikina): API JSON pública que o próprio
+// site usa. `filtro.tipodivulgacao` = "v" (venda) ou "l" (locação); o anúncio abre a galeria completa.
 // ======================================================================
+
+const CASASOFT_API = "https://apiimoveisv3.casasoftsig.com/api/v3/imoveis/pesquisa";
 
 const KIKINA = {
   id: "kikina",
   nome: "Kikina Imóveis",
   base: "https://www.kikina.com.br",
-  api: "https://apiimoveisv3.casasoftsig.com/api/v3/imoveis/pesquisa",
   clienteId: 2950,
+  cidade: "Ponta Grossa",
   contato: "(42) 99851-0022",
+  // Nomes de tipo cadastrados pela Kikina (a busca da API exige o nome exato).
   tipos: {
     casa: ["Casa Residencial", "Sobrado", "Casa em Condomínio"],
     apartamento: ["Apartamento", "Kitinet.", "Flat"],
@@ -1051,9 +821,13 @@ const KIKINA = {
   },
 };
 
-function tipoKikina(desc) {
-  for (const [tipo, lista] of Object.entries(KIKINA.tipos)) if (lista.includes(desc)) return tipo;
-  return null;
+/** Tipo do contrato: pela lista da imobiliária (quando houver) ou pelo tipo padrão da CasaSoft. */
+function tipoCasaSoft(def, r) {
+  if (def.tipos) {
+    for (const [tipo, lista] of Object.entries(def.tipos)) if (lista.includes(r.tipoImovelDescricao)) return tipo;
+    return null;
+  }
+  return tipoDeTexto(r.tipoImovelPadraoDescricao) || tipoDeTexto(r.tipoImovelDescricao);
 }
 
 const LOGRADOUROS = { aveni: "Avenida", aven: "Avenida", av: "Avenida", rua: "Rua", r: "Rua", trave: "Travessa", alame: "Alameda", rodov: "Rodovia", estra: "Estrada", praca: "Praça", pç: "Praça" };
@@ -1063,7 +837,7 @@ function dataBR(s) {
   return m && m[3] !== "0001" ? `${m[3]}-${m[2]}-${m[1]}` : null;
 }
 
-function urlKikina(r) {
+function urlCasaSoft(def, r, locacao) {
   // Mesmo formato de link que o site monta (o servidor só exige id e ref; o slug é descritivo).
   const partes = [
     slug(r.tipoImovelDescricao),
@@ -1072,13 +846,13 @@ function urlKikina(r) {
     r.imovelEnderecoCidade ? slug(r.imovelEnderecoCidade) : "",
     r.imovelVagas ? "com-garagem" : "",
     r.imovelAreaTotal ? `${Math.floor(r.imovelAreaTotal)}m2` : "",
-    `venda-rs-${r.imovelValorVenda}`,
+    locacao ? `locacao-rs-${r.imovelValorAluguel}` : `venda-rs-${r.imovelValorVenda}`,
   ].filter(Boolean);
-  return `${KIKINA.base}/imovel/${partes.join("-")}?id=${r.clienteId}&ref=${encodeURIComponent(r.imovelReferencia)}&search=0`;
+  return `${def.base}/imovel/${partes.join("-")}?id=${r.clienteId}&ref=${encodeURIComponent(r.imovelReferencia)}&search=0`;
 }
 
-function imovelDeApiKikina(r) {
-  const tipo = tipoKikina(r.tipoImovelDescricao);
+function imovelDeApiCasaSoft(def, r, locacao) {
+  const tipo = tipoCasaSoft(def, r);
   const prefixo = LOGRADOUROS[slug(r.imovelTipoEndereco || "").replace(/-/g, "")] || (r.imovelTipoEndereco || "").trim();
   const logradouro = r.imovelEndereco ? `${prefixo ? prefixo + " " : ""}${r.imovelEndereco.trim()}` : null;
   const numero = r.imovelEnderecoNumero && /\d/.test(r.imovelEnderecoNumero) ? String(r.imovelEnderecoNumero).trim() : null;
@@ -1088,22 +862,22 @@ function imovelDeApiKikina(r) {
   const foto = r.urlFotoPrincipal || null;
 
   const im = imovelBase(
-    { id: KIKINA.id, nome: KIKINA.nome, contato: KIKINA.contato, informante: corretor },
+    { id: def.id, nome: def.nome, contato: def.contato, informante: corretor },
     {
-      id: `kikina-${r.imovelReferencia}`,
-      url_anuncio: urlKikina(r),
+      id: `${def.id}-${r.imovelReferencia}`,
+      url_anuncio: urlCasaSoft(def, r, locacao),
       titulo: `${r.tipoImovelDescricao}${r.imovelQuartos ? ` ${r.imovelQuartos} quartos` : ""} – ${r.imovelEnderecoBairro || ""}`.trim(),
       tipo,
-      endereco: { logradouro, numero, numero_informado: Boolean(numero), bairro: r.imovelEnderecoBairro || null, cidade: r.imovelEnderecoCidade || "Ponta Grossa", uf: r.imovelEnderecoEstado || "PR" },
+      endereco: { logradouro, numero, numero_informado: Boolean(numero), bairro: r.imovelEnderecoBairro || null, cidade: r.imovelEnderecoCidade || def.cidade, uf: r.imovelEnderecoEstado || "PR" },
       // CasaSoft: AreaUtil = construída/privativa; AreaTotal = terreno (casa/terreno) ou total (apto).
       area_construida_m2: tipo === "terreno" ? null : tipo === "apartamento" ? util ?? total : util,
       area_terreno_m2: tipo === "apartamento" ? null : total,
-      preco_total: ouNulo(r.imovelValorVenda),
+      preco_total: ouNulo(locacao ? r.imovelValorAluguel : r.imovelValorVenda),
       dormitorios: tipo === "terreno" ? null : ouNulo(r.imovelQuartos),
       suites: tipo === "terreno" ? null : ouNulo(r.imovelSuites),
       banheiros: tipo === "terreno" ? null : ouNulo(r.imovelBanheiros),
       vagas_total: tipo === "terreno" ? null : ouNulo(r.imovelVagas),
-      condominio: tipo === "apartamento" || r.tipoImovelDescricao === "Casa em Condomínio" || r.imovelCondominio === 1 ? true : r.imovelCondominio === 0 ? false : null,
+      condominio: tipo === "apartamento" || /condom[ií]nio/i.test(r.tipoImovelDescricao || "") || r.imovelCondominio === 1 ? true : r.imovelCondominio === 0 ? false : null,
       fotos: foto ? [foto] : [],
       foto_capa: foto,
       data_anuncio: dataBR(r.imovelDataIncluido),
@@ -1116,7 +890,7 @@ function imovelDeApiKikina(r) {
   return im;
 }
 
-function aplicarDetalheKikina(im, html) {
+function aplicarDetalheCasaSoft(im, html) {
   const id = im._imovelId;
   const re = new RegExp(`https://fotos2\\.casasoft\\.net\\.br/indicadordeimoveis/imobiliarias/\\d+/fotos/${id}/[^"'\\s)]+?\\.(?:jpe?g|png|webp)`, "gi");
   const fotos = [...new Set(html.match(re) || [])];
@@ -1155,27 +929,29 @@ function aplicarDetalheKikina(im, html) {
   im.detalhe_coletado = true;
 }
 
-async function conectorKikina({ filtros, http, cfg, sinal, avaliar, log }) {
+const criarConectorCasaSoft = (def) => async function conectorCasaSoft({ filtros, http, cfg, sinal, avaliar, log }) {
   const get = cliente(http, cfg, sinal);
+  const locacao = ehLocacao(filtros);
   // Sem URLSearchParams: o código nasceu no nó Code do n8n, cujo sandbox nem sempre expõe esse global.
   const params = new Parametros({
-    "filtro.clienteid": String(KIKINA.clienteId),
-    "filtro.tipodivulgacao": "v",
-    "filtro.cidade": "Ponta Grossa",
-    "filtro.tiposimoveis": [...new Set(filtros.tipos.flatMap((t) => KIKINA.tipos[t] || []))].join(","),
+    "filtro.clienteid": String(def.clienteId),
+    "filtro.tipodivulgacao": locacao ? "l" : "v",
+    "filtro.cidade": def.cidade,
     ordenacao: "imovelvalor",
     ascdesc: "asc",
   });
+  if (def.tipos) params.set("filtro.tiposimoveis", [...new Set(filtros.tipos.flatMap((t) => def.tipos[t] || []))].join(","));
   if (filtros.bairros.length) params.set("filtro.bairro", filtros.bairros.join(","));
-  if (filtros.preco_total.min != null) params.set("filtro.valorminimo", String(Math.round(filtros.preco_total.min)));
-  if (filtros.preco_total.max != null) params.set("filtro.valormaximo", String(Math.round(filtros.preco_total.max)));
+  // As faixas de valor da API valem para o preço de venda; na locação o filtro de preço é aplicado depois.
+  if (!locacao && filtros.preco_total.min != null) params.set("filtro.valorminimo", String(Math.round(filtros.preco_total.min)));
+  if (!locacao && filtros.preco_total.max != null) params.set("filtro.valormaximo", String(Math.round(filtros.preco_total.max)));
 
   const porPagina = 100;
   const brutos = [];
   for (let pag = 1; pag <= cfg.max_paginas; pag++) {
     params.set("pagina", String(pag));
     params.set("maximo", String(porPagina));
-    let resp = await get(`${KIKINA.api}?${params}`, { headers: { "User-Agent": UA, Referer: `${KIKINA.base}/`, Accept: "application/json" }, json: true });
+    let resp = await get(`${CASASOFT_API}?${params}`, { headers: { "User-Agent": UA, Referer: `${def.base}/`, Accept: "application/json" }, json: true });
     if (typeof resp === "string") resp = JSON.parse(resp);
     if (!resp || !resp.data || !Array.isArray(resp.data.resultado))
       throw Object.assign(new Error("Possível mudança na API: resposta sem data.resultado"), { codigo: "LAYOUT" });
@@ -1183,20 +959,26 @@ async function conectorKikina({ filtros, http, cfg, sinal, avaliar, log }) {
     if (brutos.length >= resp.data.total || resp.data.resultado.length < porPagina) break;
   }
 
-  const imoveis = brutos.filter((r) => r.imovelVenda).map(imovelDeApiKikina).filter((i) => i.tipo);
+  const imoveis = brutos
+    .filter((r) => (locacao ? r.imovelLocacao : r.imovelVenda))
+    .map((r) => imovelDeApiCasaSoft(def, r, locacao))
+    .filter((i) => i.tipo && filtros.tipos.includes(i.tipo));
   const paraDetalhar = priorizarDetalhes(imoveis, filtros, avaliar).slice(0, cfg.max_detalhes);
-  log(`kikina: ${imoveis.length} imóveis na API; abrindo ${paraDetalhar.length} detalhes`);
+  log(`${def.id}: ${imoveis.length} imóveis na API; abrindo ${paraDetalhar.length} detalhes`);
   for (const im of paraDetalhar) {
     if (sinal.abortado) break;
     try {
-      aplicarDetalheKikina(im, String(await get(im.url_anuncio, { headers: { "User-Agent": UA } })));
+      aplicarDetalheCasaSoft(im, String(await get(im.url_anuncio, { headers: { "User-Agent": UA } })));
     } catch (e) {
-      log(`kikina: falha no detalhe ${im.url_anuncio}: ${e.message}`);
+      log(`${def.id}: falha no detalhe ${im.url_anuncio}: ${e.message}`);
     }
   }
   for (const im of imoveis) delete im._imovelId;
   return imoveis;
-}
+};
+
+const conectorKikina = criarConectorCasaSoft(KIKINA);
+
 
 // ======================================================================
 // Torre Blanca — Next.js SSR, API JSON nativa via /_next/data/{buildId}/
@@ -1233,11 +1015,12 @@ function extrairBuildId(html) {
   return m ? m[1] : null;
 }
 
-function imovelDeTorreBlanca(r) {
+function imovelDeTorreBlanca(r, locacao) {
   const attrs = r.attributes || {};
   const tipo = tipoTorreBlanca(attrs.tipo);
-  const operacao = (attrs.operacao || [])[0] || "Venda";
-  const preco = operacao === "Locação" ? ouNulo(attrs.valor_locacao) : ouNulo(attrs.valor_venda);
+  // A consulta já vem filtrada pela finalidade; o preço segue a finalidade pedida, não a ordem de attrs.operacao
+  // (um imóvel ["Locação", "Venda"] numa busca de venda mostraria o aluguel como preço).
+  const preco = locacao ? ouNulo(attrs.valor_locacao) : ouNulo(attrs.valor_venda);
   const ref = r.reference || r.id;
 
   const fotos = Array.isArray(r.media_assets?.images)
@@ -1281,6 +1064,7 @@ function imovelDeTorreBlanca(r) {
 
 async function conectorTorreBlanca({ filtros, http, cfg, sinal, log }) {
   const get = cliente(http, cfg, sinal);
+  const locacao = ehLocacao(filtros);
 
   // 1. Obtém o buildId atual da homepage (muda a cada deploy do site).
   const htmlHome = String(await get(TORRE_BLANCA.base, { headers: { "User-Agent": UA, Accept: "text/html" } }));
@@ -1294,7 +1078,7 @@ async function conectorTorreBlanca({ filtros, http, cfg, sinal, log }) {
 
   for (let pag = 1; pag <= cfg.max_paginas; pag++) {
     if (sinal.abortado) break;
-    const url = `${TORRE_BLANCA.base}/_next/data/${buildId}/imoveis.json?operacao=Venda&endereco_cidade=Ponta+Grossa&page=${pag}`;
+    const url = `${TORRE_BLANCA.base}/_next/data/${buildId}/imoveis.json?operacao=${locacao ? "Loca%C3%A7%C3%A3o" : "Venda"}&endereco_cidade=Ponta+Grossa&page=${pag}`;
     let resp;
     try {
       resp = await get(url, { headers: { "User-Agent": UA, Accept: "application/json" }, json: true });
@@ -1324,7 +1108,7 @@ async function conectorTorreBlanca({ filtros, http, cfg, sinal, log }) {
   // 3. Mapeia e filtra por tipo.
   const tiposAlvo = new Set(filtros.tipos);
   const imoveis = brutos
-    .map(imovelDeTorreBlanca)
+    .map((r) => imovelDeTorreBlanca(r, locacao))
     .filter((i) => i.tipo && tiposAlvo.has(i.tipo));
 
   return imoveis;
@@ -1335,27 +1119,43 @@ async function conectorTorreBlanca({ filtros, http, cfg, sinal, log }) {
 // ======================================================================
 
 // As funções de casatop, classica, madol, tavarnaro e aspen estão em conectores-novos.js (concatenado no build).
-const CONECTORES = {
-  flow: criarConectorSysOne(SYSONE.flow),
-  adquira: criarConectorSysOne(SYSONE.adquira),
-  conceito: criarConectorSysOne(SYSONE.conceito),
-  taques: criarConectorSysOne(SYSONE.taques),
-  kikina: conectorKikina,
-  casatop: conectorCasaTop,
-  classica: conectorClassica,
-  madol: conectorMadol,
-  tavarnaro: conectorTavarnaro,
-  aspen: conectorAspen,
-  montoro: conectorMontoro,
-  torre_branca: conectorTorreBlanca,
-};
-const NOMES = {
-  flow: SYSONE.flow.nome, adquira: SYSONE.adquira.nome, conceito: SYSONE.conceito.nome, taques: SYSONE.taques.nome, kikina: KIKINA.nome,
-  casatop: CASATOP.nome, classica: CLASSICA.nome, madol: MADOL.nome, tavarnaro: TAVARNARO.nome, aspen: ASPEN.nome, montoro: MONTORO.nome,
-  torre_branca: "Torre Blanca", quintoandar: "QuintoAndar",
+// Cadastro das fontes por cidade: id → { nome, conector }. Os ids precisam bater com web/src/lib/fontes.ts.
+const FONTES_PONTA_GROSSA = {
+  flow: { nome: SYSONE.flow.nome, conector: criarConectorSysOne(SYSONE.flow) },
+  adquira: { nome: SYSONE.adquira.nome, conector: criarConectorSysOne(SYSONE.adquira) },
+  conceito: { nome: SYSONE.conceito.nome, conector: criarConectorSysOne(SYSONE.conceito) },
+  taques: { nome: SYSONE.taques.nome, conector: criarConectorSysOne(SYSONE.taques) },
+  kikina: { nome: KIKINA.nome, conector: conectorKikina },
+  casatop: { nome: CASATOP.nome, conector: conectorCasaTop },
+  classica: { nome: CLASSICA.nome, conector: conectorClassica },
+  madol: { nome: MADOL.nome, conector: conectorMadol },
+  tavarnaro: { nome: TAVARNARO.nome, conector: conectorTavarnaro },
+  aspen: { nome: ASPEN.nome, conector: conectorAspen },
+  montoro: { nome: MONTORO.nome, conector: conectorMontoro },
+  torre_branca: { nome: TORRE_BLANCA.nome, conector: conectorTorreBlanca },
 };
 
+const FONTES_POR_CIDADE = {
+  "Ponta Grossa": FONTES_PONTA_GROSSA,
+  Curitiba: FONTES_CURITIBA,
+};
+
+const CONECTORES = {};
+const NOMES = {};
+/** id da fonte → cidade que ela atende (a busca só aceita fontes da cidade pedida). */
+const CIDADE_DA_FONTE = {};
+for (const [cidade, fontes] of Object.entries(FONTES_POR_CIDADE)) {
+  for (const [id, f] of Object.entries(fontes)) {
+    CONECTORES[id] = f.conector;
+    NOMES[id] = f.nome;
+    CIDADE_DA_FONTE[id] = cidade;
+  }
+}
+const CIDADES = Object.keys(FONTES_POR_CIDADE);
+
 async function coletarFontes({ requisicao, http, timeoutFonteMs, config, avaliar, log = () => {} }) {
+  const filtros = { ...requisicao.filtros, finalidade: ehLocacao(requisicao.filtros) ? "locacao" : "venda" };
+  const cidade = requisicao.cidade || "Ponta Grossa";
   const resultados = await Promise.all(
     requisicao.fontes.map(async (fonteId) => {
       const nome = NOMES[fonteId] || fonteId;
@@ -1368,10 +1168,14 @@ async function coletarFontes({ requisicao, http, timeoutFonteMs, config, avaliar
       let timer;
       const inicio = Date.now();
       try {
-        const imoveis = await Promise.race([
-          conector({ filtros: requisicao.filtros, http, cfg, sinal, avaliar, log }),
+        const brutos = await Promise.race([
+          conector({ filtros, cidade, http, cfg, sinal, avaliar, log }),
           new Promise((_, rej) => { timer = setTimeout(() => rej(Object.assign(new Error(`A fonte não respondeu em ${Math.round(timeoutFonteMs / 1000)} segundos`), { codigo: "TIMEOUT" })), timeoutFonteMs); }),
         ]);
+        // Rede de segurança: imóvel de outra cidade (região metropolitana, litoral…) não entra na busca.
+        const imoveis = brutos.filter((im) => !im.endereco || !im.endereco.cidade || slug(im.endereco.cidade) === slug(cidade));
+        if (imoveis.length < brutos.length) log(`${fonteId}: ${brutos.length - imoveis.length} imóveis de outras cidades descartados`);
+        for (const im of imoveis) im.finalidade = filtros.finalidade;
         log(`${fonteId}: ok em ${((Date.now() - inicio) / 1000).toFixed(1)} s`);
         return { fonte: { id: fonteId, nome, status: "ok", itens: imoveis.length }, imoveis, erro: null };
       } catch (e) {
@@ -1392,4 +1196,4 @@ async function coletarFontes({ requisicao, http, timeoutFonteMs, config, avaliar
   };
 }
 
-export { coletarFontes, NOMES };
+export { coletarFontes, NOMES, CIDADE_DA_FONTE, CIDADES };

@@ -1,6 +1,8 @@
 // Tipos do contrato front ↔ backend (especificação, seção 5).
 
 export type TipoImovel = "casa" | "apartamento" | "terreno";
+/** Venda (preço total) ou locação (preço = aluguel mensal). */
+export type Finalidade = "venda" | "locacao";
 export type SimNao = "sim" | "nao" | "indiferente";
 export type Condominio = SimNao;
 
@@ -10,6 +12,8 @@ export interface Faixa {
 }
 
 export interface Filtros {
+  /** Opcional: pesquisas salvas antes do campo não o trazem e valem como "venda". */
+  finalidade?: Finalidade;
   tipos: TipoImovel[];
   bairros: string[];
   area_construida: Faixa;
@@ -87,8 +91,11 @@ export interface Imovel {
   endereco: Endereco;
   area_construida_m2: number | null;
   area_terreno_m2: number | null;
+  /** Venda: preço total. Locação: aluguel mensal. */
   preco_total: number | null;
   preco_m2: number | null;
+  /** Finalidade da busca que trouxe o imóvel (opcional: respostas em cache anteriores ao campo não o trazem). */
+  finalidade?: Finalidade;
   pavimentos: number | null;
   condominio: boolean | null;
   dormitorios: number | null;
@@ -150,6 +157,7 @@ export interface AvaliacaoImovel {
 }
 
 export const FILTROS_VAZIOS: Filtros = {
+  finalidade: "venda",
   tipos: ["casa"],
   bairros: [],
   area_construida: { min: null, max: null },
