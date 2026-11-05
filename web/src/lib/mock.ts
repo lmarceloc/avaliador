@@ -25,6 +25,8 @@ function hash(s: string): number {
 }
 
 const BAIRROS = ["Órfãs", "Chapada", "Jd. Carvalho", "Oficinas", "Centro", "Estrela", "Uvaranas", "Olarias", "Colonia Dona Luiza", "Nova Rússia", "Ronda", "Boa Vista"];
+// Na busca simulada de Curitiba, o mesmo sorteio usa estes bairros (posição a posição).
+const BAIRROS_CWB = ["Água Verde", "Batel", "Bigorrilho", "Portão", "Centro", "Cabral", "Boa Vista", "Xaxim", "Santa Felicidade", "Cajuru", "Juvevê", "Mercês"];
 const RUAS = ["Rua Balduíno Taques", "Rua Ermelino de Leão", "Av. Visconde de Taunay", "Rua Comendador Miró", "Rua Tiradentes", "Rua Paula Xavier", "Av. Ernesto Vilela", "Rua XV de Novembro", "Rua Rodrigues Alves", "Rua Enfermeiro Paulino"];
 const PADROES = ["2.4 Simples", "2.5 Médio", "2.6 Superior", null];
 const CONTATOS: Record<string, [string, string]> = {
@@ -150,6 +152,15 @@ function coletarFonte(fonte: string, req: RequisicaoBusca): Imovel[] {
     base.area = base.area ?? 180;
     const rf = prng(hash(fonte) + c.seed);
     itens.push(montarImovel(fonte, `C${c.seed}`, base, rf, fonte === c.fontes[0] ? 0 : 0.004));
+  }
+
+  // Locação: o mesmo estoque simulado com aluguel mensal (~0,45% do valor de venda).
+  const locacao = req.filtros.finalidade === "locacao";
+  for (const i of itens) {
+    i.endereco.cidade = req.cidade || i.endereco.cidade;
+    if (req.cidade === "Curitiba" && i.endereco.bairro) i.endereco.bairro = BAIRROS_CWB[BAIRROS.indexOf(i.endereco.bairro)] ?? i.endereco.bairro;
+    i.finalidade = locacao ? "locacao" : "venda";
+    if (locacao && i.preco_total !== null) i.preco_total = Math.round((i.preco_total * 0.0045) / 50) * 50;
   }
 
   // O site já filtra por tipo e bairro na URL de busca; o resto é avaliado depois.

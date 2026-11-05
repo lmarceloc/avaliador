@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Faixa, Filtros, SimNao, TipoImovel } from "@/lib/contrato";
-import { BAIRROS_PONTA_GROSSA, semAcento } from "@/lib/bairros";
-import { FONTES } from "@/lib/fontes";
+import type { Faixa, Filtros, Finalidade, SimNao, TipoImovel } from "@/lib/contrato";
+import { BAIRROS_POR_CIDADE, semAcento } from "@/lib/bairros";
+import { CIDADES, fontesDaCidade, type Cidade } from "@/lib/fontes";
 
 interface Props {
+  cidade: Cidade;
+  onCidade: (c: Cidade) => void;
   filtros: Filtros;
   onFiltros: (f: Filtros) => void;
   fontes: string[];
@@ -19,6 +21,11 @@ const TIPOS: { id: TipoImovel; rotulo: string }[] = [
   { id: "casa", rotulo: "Casa" },
   { id: "apartamento", rotulo: "Apartamento" },
   { id: "terreno", rotulo: "Terreno" },
+];
+
+const FINALIDADES: { id: Finalidade; rotulo: string }[] = [
+  { id: "venda", rotulo: "Venda" },
+  { id: "locacao", rotulo: "Locação" },
 ];
 
 const rotuloCls = "block text-xs font-medium uppercase tracking-wide text-ink-3 mb-1.5";
@@ -122,13 +129,13 @@ function CampoSimNao({ rotulo, valor, onChange }: { rotulo: string; valor: SimNa
   );
 }
 
-function SeletorBairros({ selecionados, onChange }: { selecionados: string[]; onChange: (b: string[]) => void }) {
+function SeletorBairros({ bairros, selecionados, onChange }: { bairros: string[]; selecionados: string[]; onChange: (b: string[]) => void }) {
   const [termo, setTermo] = useState("");
   const [aberto, setAberto] = useState(false);
   const opcoes = useMemo(() => {
     const t = semAcento(termo);
-    return BAIRROS_PONTA_GROSSA.filter((b) => semAcento(b).includes(t));
-  }, [termo]);
+    return bairros.filter((b) => semAcento(b).includes(t));
+  }, [termo, bairros]);
 
   const alternar = (b: string) =>
     onChange(selecionados.includes(b) ? selecionados.filter((x) => x !== b) : [...selecionados, b]);
@@ -183,16 +190,42 @@ function SeletorBairros({ selecionados, onChange }: { selecionados: string[]; on
   );
 }
 
-export function PainelFiltros({ filtros, onFiltros, fontes, onFontes, buscando, onPesquisar, temResultado }: Props) {
+export function PainelFiltros({ cidade, onCidade, filtros, onFiltros, fontes, onFontes, buscando, onPesquisar, temResultado }: Props) {
   const set = <K extends keyof Filtros>(k: K, v: Filtros[K]) => onFiltros({ ...filtros, [k]: v });
   const semTipo = filtros.tipos.length === 0;
   const semFonte = fontes.length === 0;
+  const finalidade = filtros.finalidade ?? "venda";
+  const fontesCidade = fontesDaCidade(cidade);
+  const ativasCidade = fontesCidade.filter((f) => f.ativa).map((f) => f.id);
 
   return (
     <form
       className="flex flex-col gap-5"
       onSubmit={(e) => { e.preventDefault(); if (!semTipo && !semFonte) onPesquisar(false); }}
     >
+      <label className="block">
+        <span className={rotuloCls}>Cidade</span>
+        <select className={inputCls} value={cidade} onChange={(e) => onCidade(e.target.value as Cidade)}>
+          {CIDADES.map((c) => (
+            <option key={c.nome} value={c.nome}>{c.nome} / {c.uf}</option>
+          ))}
+        </select>
+      </label>
+
+      <fieldset>
+        <legend className={rotuloCls}>Finalidade</legend>
+        <div className="grid grid-cols-2 overflow-hidden rounded-md border border-line">
+          {FINALIDADES.map((f) => (
+            <button
+              key={f.id} type="button" aria-pressed={finalidade === f.id} onClick={() => set("finalidade", f.id)}
+              className={`px-2 py-1.5 text-sm ${finalidade === f.id ? "bg-ink text-bg font-medium" : "bg-surface text-ink-2 hover:bg-surface-2"}`}
+            >
+              {f.rotulo}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+
       <fieldset>
         <legend className={rotuloCls}>Tipo de imóvel <span className="text-bad">*</span></legend>
         <div className="flex flex-wrap gap-1.5">
@@ -212,11 +245,14 @@ export function PainelFiltros({ filtros, onFiltros, fontes, onFontes, buscando, 
         {semTipo && <p className="mt-1 text-xs text-bad">Escolha pelo menos um tipo.</p>}
       </fieldset>
 
-      <SeletorBairros selecionados={filtros.bairros} onChange={(b) => set("bairros", b)} />
+      <SeletorBairros key={cidade} bairros={BAIRROS_POR_CIDADE[cidade] ?? []} selecionados={filtros.bairros} onChange={(b) => set("bairros", b)} />
 
       <CampoFaixa rotulo="Área construída" unidade="m²" faixa={filtros.area_construida} onChange={(f) => set("area_construida", f)} />
       <CampoFaixa rotulo="Área do terreno" unidade="m²" faixa={filtros.area_terreno} onChange={(f) => set("area_terreno", f)} />
-      <CampoFaixa rotulo="Preço total" unidade="R$" moeda faixa={filtros.preco_total} onChange={(f) => set("preco_total", f)} />
+      <CampoFaixa
+        rotulo={finalidade === "locacao" ? "Aluguel mensal" : "Preço total"} unidade="R$" moeda
+        faixa={filtros.preco_total} onChange={(f) => set("preco_total", f)}
+      />
 
       <div className="grid grid-cols-2 gap-3">
         <CampoMinimo rotulo="Dormitórios" valor={filtros.dormitorios_min} onChange={(v) => set("dormitorios_min", v)} />
@@ -232,9 +268,16 @@ export function PainelFiltros({ filtros, onFiltros, fontes, onFontes, buscando, 
       <CampoSimNao rotulo="Piscina" valor={filtros.piscina} onChange={(v) => set("piscina", v)} />
 
       <fieldset>
-        <legend className={rotuloCls}>Fontes <span className="text-bad">*</span></legend>
+        <legend className={`${rotuloCls} flex w-full items-center justify-between`}>
+          <span>Fontes de {cidade} <span className="text-bad">*</span></span>
+          <span className="normal-case tracking-normal">
+            <button type="button" onClick={() => onFontes(ativasCidade)} className="text-accent underline-offset-2 hover:underline">todas</button>
+            {" · "}
+            <button type="button" onClick={() => onFontes([])} className="text-accent underline-offset-2 hover:underline">nenhuma</button>
+          </span>
+        </legend>
         <div className="flex flex-col gap-1">
-          {FONTES.map((f) => (
+          {fontesCidade.map((f) => (
             <label key={f.id} className={`flex items-center gap-2 text-sm ${f.ativa ? "" : "opacity-50"}`}>
               <input
                 type="checkbox" className="size-4 accent-[var(--accent)]" disabled={!f.ativa}

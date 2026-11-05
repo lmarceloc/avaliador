@@ -7,7 +7,7 @@ const COLUNAS = [
   "Nº", "Endereço com nº", "Bairro", "Área construída (m²)", "Área do terreno (m²)", "Preço total (R$)",
   "Preço/m² (R$)", "Pavimentos", "Condomínio", "Dormitórios", "Suítes", "Banheiros", "Vagas cobertas",
   "Vagas descobertas", "Vagas total", "Área de lazer / churrasqueira", "Piscina", "Padrão de acabamento (VEIU)", "Idade", "Estado IBAPE", "Depreciação IBAPE (%)", "Data do evento",
-  "Informante", "Contato", "Fonte de pesquisa", "Link do anúncio", "Observações",
+  "Informante", "Contato", "Fonte de pesquisa", "Link do anúncio", "Observações", "Finalidade",
 ];
 // Percentual do Quadro 1 do IBAPE: sempre com duas casas ("0,00", "0,32").
 const COL_DEPRECIACAO = COLUNAS.indexOf("Depreciação IBAPE (%)");
@@ -47,6 +47,8 @@ function linhas(imoveis: Imovel[], avaliacoes: Record<string, AvaliacaoImovel>):
       i.fonte.nome,
       i.url_anuncio,
       a?.observacoes || null,
+      // Na locação, "Preço total" é o aluguel mensal.
+      i.finalidade === "locacao" ? "Locação (aluguel mensal)" : "Venda",
     ];
   });
 }

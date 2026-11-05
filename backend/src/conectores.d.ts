@@ -2,6 +2,9 @@
 import type { ErroFonte, FonteResumo, Imovel, RequisicaoBusca } from "../../web/src/lib/contrato";
 
 export const NOMES: Record<string, string>;
+/** id da fonte → cidade que ela atende ("Ponta Grossa" | "Curitiba"). */
+export const CIDADE_DA_FONTE: Record<string, string>;
+export const CIDADES: string[];
 
 export function coletarFontes(opcoes: {
   requisicao: RequisicaoBusca;

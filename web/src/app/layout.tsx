@@ -6,8 +6,8 @@ const sans = IBM_Plex_Sans({ variable: "--font-plex-sans", subsets: ["latin"], w
 const mono = IBM_Plex_Mono({ variable: "--font-plex-mono", subsets: ["latin"], weight: ["400", "500"] });
 
 export const metadata: Metadata = {
-  title: "Busca de Imóveis – Ponta Grossa",
-  description: "Pesquisa de imóveis comparativos nas imobiliárias de Ponta Grossa/PR.",
+  title: "Busca de Imóveis – Ponta Grossa e Curitiba",
+  description: "Pesquisa de imóveis comparativos (venda e locação) nas imobiliárias de Ponta Grossa/PR e Curitiba/PR.",
   robots: { index: false, follow: false },
 };
 

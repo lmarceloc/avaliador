@@ -1,4 +1,27 @@
-# Busca de Imóveis: Ponta Grossa/PR (fase 1)
+# Busca de Imóveis: Ponta Grossa/PR e Curitiba/PR
+
+## Cidades e finalidade
+
+No topo do painel ficam o **select de cidade** (Ponta Grossa ou Curitiba) e a escolha **Venda / Locação**.
+Trocar de cidade troca a lista de bairros e de imobiliárias (cada fonte atende uma cidade; o backend recusa fonte de
+outra cidade). Na locação o campo de preço vira **aluguel mensal**: o card mostra "/mês", o detalhe "Aluguel mensal" e a
+planilha ganha a coluna `Finalidade`. Venda e locação usam cache separado. Pesquisas salvas antigas, sem o campo, abrem como venda.
+
+### Imobiliárias de Curitiba (21, levantamento de 05/11/2026)
+
+| Plataforma | Imobiliárias | Como coleta |
+|---|---|---|
+| PipeImob (Rede UNA) | Kondor, Habitec, Cilar, Afortiori, Paraíso, Burgman, Construa, Gomes, Jamaica, Outra Sul, Toyo, Razão | Os sites da rede mostram o **mesmo estoque compartilhado**. A rede é lida uma vez por busca (site da Habitec) e cada imobiliária recebe só o estoque próprio, pelo sufixo da referência (`-KD`, `-HT`, `-CL`, `-AFO`, `-PAR`, `-BUR`, `-CAI`, `-GOMG`, `-JA1`, `-OUT`, `-TOYO`, `-RZ`). AFO e PAR foram deduzidos pela sigla. |
+| IC Informática | Calluf, Casa722, Cielo, View | Sitemap + quadro "Detalhes do Imóvel" do anúncio |
+| Tecimob | Sawasaki, GM2 | `__NEXT_DATA__` da listagem `/comprar` ou `/alugar` |
+| Supremo CRM | Prime Soho, Bem Brasil | `imoveis.php?para=vender\|alugar&cidade=6015` + anúncio |
+| Imobibrasil | Galo | Sitemap + anúncio (ISO-8859-1) |
+
+Ficaram de fora: as 6 da plataforma **Kenlo** (Partner, Hoje, Cilar Imóveis, Avante, Lugano, Versat), cujo robots.txt
+proíbe robôs genéricos; Favretto (só anuncia áreas/barracões em Curitiba); Patrial e J Godoi (Code49, área e bairro só no
+texto livre); Mafi (código da rede não identificado); Hostert (certificado HTTPS inválido).
+
+## Ponta Grossa (fase 1)
 
 Front de busca de comparativos para a avaliadora. Ele reúne numa única grade os imóveis das imobiliárias,
 com fotos, link direto para o anúncio e a verificação de cada filtro.
@@ -116,7 +139,7 @@ A busca simulada e o backend da VPS usam essas mesmas funções: o build do back
 `Pavimentos`, `Condomínio`, `Dormitórios`, `Suítes`, `Banheiros`, `Vagas cobertas`, `Vagas descobertas`, `Vagas total`,
 `Área de lazer / churrasqueira`, `Piscina`, `Padrão de acabamento (VEIU)`, `Idade`, `Estado IBAPE`, `Depreciação IBAPE (%)`,
 `Data do evento`, `Informante`, `Contato`, `Fonte de pesquisa`,
-`Link do anúncio`, `Observações`.
+`Link do anúncio`, `Observações`, `Finalidade` (Venda ou Locação; na locação, `Preço total` é o aluguel mensal).
 
 ## Perguntas frequentes
 
