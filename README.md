@@ -56,6 +56,13 @@ No Hobby só commits da própria conta da Byte publicam; um push direto de outro
    "Rebase and merge" mantêm o autor original do commit e o deploy é bloqueado de novo.
 3. O merge sai no nome da Byte e a Vercel publica a `main` sozinha.
 
+Se o merge sair pela conta pessoal por engano, a Vercel bloqueia ("Git author … must have access to the project").
+O código já está na `main`; para publicar, abra um PR com um commit vazio (`git commit --allow-empty`) e faça o merge
+dele pela conta da Byte com **Create a merge commit** (foi o que fizemos no PR #8).
+
+Usuários de teste: no Console do serviço backend no EasyPanel, `node dist/usuarios.mjs criar email@exemplo.com "Nome"`
+(mostra a senha gerada uma vez). Mais comandos em [backend/README.md](backend/README.md#usuários).
+
 O backend da VPS não passa pela Vercel: o EasyPanel gera a imagem a partir do mesmo repositório
 (`backend/Dockerfile`). Depois de mudar `backend/` **ou `web/src/lib/`** (as regras vão embutidas no backend),
 faça **Deploy** no serviço backend do EasyPanel, ou ligue o deploy automático dele. Passo a passo em
@@ -250,4 +257,73 @@ npx tsc --noEmit && npx eslint src test
 - **Lista de bairros** ([web/src/lib/bairros.ts](web/src/lib/bairros.ts)): é provisória e precisa ser substituída pela oficial.
 - **Autenticação**: login por e-mail e senha (seção "Login"). Ainda não há cadastro pela tela nem tela de administração de usuários.
 - **Hospedagem**: o front fica na Vercel; a coleta e o Postgres ficam na VPS (EasyPanel), ver [backend/README.md](backend/README.md).
+  Alternativa estudada para o front: Cloudflare Workers (seção "Possibilidades futuras").
+- **Códigos da Rede UNA a confirmar**: `AFO` (Afortiori) e `PAR` (Paraíso) foram deduzidos pela sigla
+  ([backend/src/conectores-curitiba.js](backend/src/conectores-curitiba.js), lista `PIPEIMOB`).
 - **Coluna "Idade"** da planilha: nenhuma fonte publica esse dado, então ela sai vazia na exportação.
+
+## Histórico
+
+### 05/11/2026: Curitiba e Venda/Locação (PRs #7 e #8)
+
+- **Curitiba**: 21 imobiliárias em 5 plataformas (tabela em "Cidades e finalidade"). Levantamento de cerca de 70
+  imobiliárias (diretórios, portais e a lista de associadas da Rede UNA), com plataforma e robots.txt conferidos site a site.
+- **Select de cidade** e **filtro Venda/Locação** no painel. Na locação o preço é o aluguel mensal; venda e locação têm
+  cache separado; a planilha ganhou a coluna `Finalidade`.
+- **Locação nas 12 de Ponta Grossa**: antes, um imóvel anunciado só para locação nunca aparecia na busca.
+- **Torre Blanca**: um imóvel anunciado para venda e locação podia vir com o aluguel como preço na busca de venda (corrigido).
+- **Rede UNA**: os sites das associadas mostram o mesmo estoque compartilhado; a rede é lida uma vez por busca e cada
+  imobiliária recebe só o estoque próprio (sufixo da referência). Sem isso, as 12 trariam quase tudo repetido.
+- **Organização do código**: `backend/src/conectores-base.js` (utilitários), `conectores.js` (Ponta Grossa + cadastro
+  por cidade), `conectores-curitiba.js` (Curitiba). A Kikina virou um conector CasaSoft genérico.
+- **Testes**: coleta real nas 21 de Curitiba e em 11 de 12 de Ponta Grossa (a Adquira estava fora do ar);
+  `backend/test/cidades.test.ts` (8 testes, sem banco); 38 testes do web.
+- **Deploy**: o merge do #7 saiu pela conta pessoal e a Vercel bloqueou; o #8 (commit vazio) foi mergeado pela Byte.
+  Backend: Deploy no EasyPanel (sem dependência, migração ou variável nova).
+
+## Possibilidades futuras
+
+### Front no Cloudflare Workers (Postgres e coleta continuam na VPS)
+
+O front não acessa o banco: ele só chama a API do backend (`BACKEND_URL` + `X-API-Key`). Por isso dá para tirar o front
+da Vercel sem mexer na VPS.
+
+**Por que considerar**
+- Acaba o bloqueio por autor de commit do plano Hobby da Vercel.
+- O Hobby da Vercel é só para uso não comercial pelos termos; projeto de cliente da agência é uso comercial.
+- Workers grátis (100 mil requisições/dia) sobra para o uso atual; o plano pago custa US$ 5/mês.
+
+**Como seria**
+- Next.js no Cloudflare roda como **Worker** (o Pages virou o caminho antigo).
+- Adaptador recomendado pelo Cloudflare: **vinext** (beta), que roda o app Next 16 como está e suporta `proxy.ts`.
+- Alternativa: **OpenNext**, que ainda não suporta middleware em Node (o `proxy.ts` do login roda em Node); exigiria adaptar o login.
+- APIs de Node usadas pelo app existem nos Workers: `node:crypto` (sessão), `node:dns` e `node:net` (proteção da análise
+  de fotos). O `node:fs` só é usado no modo simulado, sem backend.
+
+**Riscos**: vinext em beta; o app usa `cacheComponents` e `partialPrefetching` (recursos novos do Next). Testar antes de trocar.
+
+**Passo a passo sugerido (meio dia a um dia)**
+1. Logar o Wrangler na conta Cloudflare da Byte: `npx wrangler login`.
+2. Numa branch, em `web/`: `npx vinext check` (relatório de compatibilidade).
+3. Publicar uma cópia de teste em `*.workers.dev` apontando para o mesmo backend da VPS, com as variáveis da Vercel
+   (`BACKEND_URL`, `BACKEND_API_KEY`, `SESSAO_SEGREDO`, `OPENROUTER_*`, `TYPESAFE_*`, `JEV_*`, `FOTOS_MAX`).
+4. Validar login, busca (Ponta Grossa e Curitiba, venda e locação), análise de fotos e exportação.
+5. Ligar o deploy pelo Git (Workers Builds), apontar o domínio e desligar a Vercel.
+
+### Coleta e banco no Cloudflare (não recomendado agora)
+
+- A coleta leva de 60 a 120 s e faz centenas de requisições por busca, com pausa de 1 s por site. Num Worker isso exigiria
+  reescrever com Queues ou Workflows por causa dos limites de subrequisições e de execução em segundo plano.
+- IPs de saída do Cloudflare são barrados com mais frequência por firewalls de sites (a Madol já pede captcha).
+- **D1** (SQLite) daria conta do volume, mas o código usa recursos do Postgres (`jsonb`, índices parciais, `interval`)
+  e precisaria ser reescrito. **R2** é armazenamento de arquivos, não banco.
+- Uso útil do R2 já hoje: destino S3 dos **backups do Postgres** no EasyPanel (o banco da VPS não tem backup automático).
+
+### Outras imobiliárias de Curitiba
+
+- **Kenlo** (Partner, Hoje, Cilar Imóveis, Avante, Lugano, Versat): os dados vêm completos no HTML, mas o robots.txt
+  proíbe robôs genéricos. Só com autorização das imobiliárias.
+- **Code49** (Patrial, J Godoi): área e bairro só no texto livre; daria com leitura do texto e menor qualidade.
+- **Rede UNA**: outras associadas aparecem na varredura com código próprio (`BG`, `PC`, `CS`, `GV`, `MAG`, `TAN`, `CB`…);
+  cada uma pode virar fonte com uma linha na lista `PIPEIMOB`, depois de confirmar o código e o site.
+- Mafi (código não identificado), Hostert (certificado HTTPS inválido), Favretto (só áreas e barracões em Curitiba).
