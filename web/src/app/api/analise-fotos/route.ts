@@ -2,7 +2,7 @@
 // PATCH: marca a análise como aprovada depois que o usuário confirmou a avaliação.
 import { analisarFotos, lerConfig } from "@/server/analise-fotos";
 import { lerConfigJev, triarAnalise, type TipoImovelTriagem } from "@/server/triagem-jev";
-import { aprovarAnalise, armazenamento, armazenamentoTriagem, urlPermitida } from "@/server/analise-armazenamento";
+import { aprovarAnalise, armazenamento, armazenamentoTriagem, fetchFoto, urlPermitida } from "@/server/analise-armazenamento";
 import { sessaoAtual } from "@/server/sessao-atual";
 
 export const maxDuration = 120;
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
         const resultado = await analisarFotos(
           { imovel_id, fotos },
           {
-            fetch, armazenamento, urlPermitida, config: lerConfig(),
+            fetch, fetchFoto, armazenamento, urlPermitida, config: lerConfig(),
             onProgresso: (lidas, total) => enviar({ tipo: "progresso", lidas, total }),
           },
         );
