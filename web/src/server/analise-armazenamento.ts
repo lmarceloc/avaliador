@@ -2,8 +2,6 @@
 import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import dns from "node:dns/promises";
-import net from "node:net";
 import { backend, backendJson } from "@/lib/servidor";
 import type { Armazenamento, LinhaAnalise, LinhaLogFoto } from "./analise-fotos";
 import type { ArmazenamentoTriagem, LinhaTriagem } from "./triagem-jev";
@@ -59,26 +57,5 @@ export async function aprovarAnalise(id: string, imovelId: string, por: string |
   await post(`/analises-foto/${encodeURIComponent(id)}/aprovar`, { imovel_id: imovelId, aprovado_por: por });
 }
 
-// ---------- Proteção contra SSRF: o servidor só baixa fotos de endereços públicos ----------
-
-function ipPrivado(ip: string): boolean {
-  if (net.isIPv4(ip)) {
-    const [a, b] = ip.split(".").map(Number);
-    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
-  }
-  const v6 = ip.toLowerCase();
-  if (v6.startsWith("::ffff:")) return ipPrivado(v6.slice(7));
-  return v6 === "::1" || v6 === "::" || v6.startsWith("fc") || v6.startsWith("fd") || v6.startsWith("fe80");
-}
-
-export async function urlPermitida(url: string): Promise<boolean> {
-  try {
-    const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
-    if (net.isIP(host)) return !ipPrivado(host);
-    if (host === "localhost" || host.endsWith(".local") || host.endsWith(".internal")) return false;
-    const enderecos = await dns.lookup(host, { all: true });
-    return enderecos.length > 0 && enderecos.every((e) => !ipPrivado(e.address));
-  } catch {
-    return false;
-  }
-}
+// Proteção contra SSRF no download das fotos: ver ./rede-segura.ts
+export { fetchFoto, urlPermitida } from "./rede-segura";

@@ -92,6 +92,8 @@ export interface ConfigAnalise {
 
 export interface DepsAnalise {
   fetch: typeof fetch;
+  /** fetch usado só no download das fotos (no servidor: conecta apenas a IPs públicos). Padrão: fetch. */
+  fetchFoto?: typeof fetch;
   armazenamento: Armazenamento;
   config: ConfigAnalise;
   /** Rejeita URLs que não devem ser buscadas pelo servidor (rede interna etc.). */
@@ -170,7 +172,7 @@ async function baixarFoto(url: string, deps: DepsAnalise): Promise<FotoBaixada> 
 
     let resp: Response;
     try {
-      resp = await deps.fetch(atual, { redirect: "manual", headers: { "User-Agent": "Mozilla/5.0 (compatible; BuscaImoveis/1.0)", Accept: "image/*" }, signal: AbortSignal.timeout(TIMEOUT_DOWNLOAD_MS) });
+      resp = await (deps.fetchFoto ?? deps.fetch)(atual, { redirect: "manual", headers: { "User-Agent": "Mozilla/5.0 (compatible; BuscaImoveis/1.0)", Accept: "image/*" }, signal: AbortSignal.timeout(TIMEOUT_DOWNLOAD_MS) });
     } catch (e) {
       const nome = (e as Error).name;
       throw new FotoInvalida("erro", nome === "TimeoutError" || nome === "AbortError" ? "timeout de 15 s no download" : "falha de rede no download");
