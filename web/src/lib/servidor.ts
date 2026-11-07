@@ -76,6 +76,9 @@ export async function salvarAvaliacao(a: AvaliacaoImovel): Promise<AvaliacaoImov
     padrao_acabamento: a.padrao_acabamento ?? null,
     observacoes: a.observacoes ?? null,
     incluido_avaliacao: a.incluido_avaliacao ?? null,
+    area_terreno_m2: a.area_terreno_m2 ?? null,
+    piscina: a.piscina ?? null,
+    condominio: a.condominio ?? null,
     atualizado_em: new Date().toISOString(),
   };
   if (!backend.base) {

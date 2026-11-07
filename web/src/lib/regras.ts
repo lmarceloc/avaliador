@@ -1,7 +1,7 @@
 // Regras de negócio da seção 4 (normalização, filtros, deduplicação e outliers).
 // Funções puras, sem dependências: o backend da VPS embute este mesmo arquivo na coleta.
 
-import type { Criterio, Faixa, Filtros, Imovel, RespostaBusca, SimNao } from "./contrato";
+import type { AvaliacaoImovel, Criterio, Faixa, Filtros, Imovel, RespostaBusca, SimNao } from "./contrato";
 import { normalizarBairro, semAcento } from "./bairros";
 
 // ---------- 4.1 Normalização ----------
@@ -55,6 +55,28 @@ export function camposFaltantes(imovel: Imovel): string[] {
   return faltam;
 }
 
+// ---------- Térrea ou sobrado ----------
+
+/**
+ * Classifica uma casa pelo que o anúncio traz: a palavra "sobrado" (título ou endereço do anúncio), depois o
+ * número de pavimentos (1 = térrea, 2 ou mais = sobrado) e por último a palavra "térrea". Sem nada disso, null.
+ * Nomes de categoria como "Casa/Sobrado" não contam: o site usa o mesmo rótulo para os dois.
+ */
+export function tipoCasa(i: Pick<Imovel, "tipo" | "titulo" | "url_anuncio" | "pavimentos">): "terrea" | "sobrado" | null {
+  if (i.tipo !== "casa") return null;
+  let caminho = "";
+  try {
+    caminho = decodeURIComponent(new URL(i.url_anuncio).pathname);
+  } catch {
+    /* url inválida: só o título */
+  }
+  const texto = semAcento(`${i.titulo ?? ""} ${caminho}`).replace(/casas?\s*(?:[/|-]|\bou\b|\be\b)\s*sobrados?/g, " ");
+  if (/sobrado|assobradad/.test(texto)) return "sobrado";
+  if (i.pavimentos !== null && i.pavimentos !== undefined) return i.pavimentos >= 2 ? "sobrado" : "terrea";
+  if (/\bterre[ao]\b|terrea/.test(texto)) return "terrea";
+  return null;
+}
+
 // ---------- 4.2 Avaliação dos filtros ----------
 
 function faixaPreenchida(f: Faixa): boolean {
@@ -99,6 +121,17 @@ export function avaliarCriterios(imovel: Imovel, filtros: Filtros): Pick<Imovel,
     encontrado: imovel.tipo,
     resultado: filtros.tipos.includes(imovel.tipo) ? "atende" : "nao_atende",
   });
+
+  // Térrea/sobrado só se aplica a casa. Requisições antigas não trazem o filtro.
+  if (filtros.tipo_casa && filtros.tipo_casa !== "indiferente" && imovel.tipo === "casa") {
+    const achado = tipoCasa(imovel);
+    c.push({
+      campo: "tipo_casa",
+      exigido: filtros.tipo_casa,
+      encontrado: achado,
+      resultado: achado === null ? "nao_verificado" : achado === filtros.tipo_casa ? "atende" : "nao_atende",
+    });
+  }
 
   if (filtros.bairros.length > 0) {
     const bairro = imovel.endereco.bairro;
@@ -260,4 +293,32 @@ export function processarImoveis(
       repetidos_removidos: removidos,
     },
   };
+}
+
+// ---------- Correções da avaliadora ----------
+
+/**
+ * Aplica as correções feitas à mão (área do terreno, piscina, condomínio) sobre o imóvel do anúncio e
+ * reavalia os filtros com elas. Guarda o valor original em originais_anuncio para a tela mostrar o que mudou.
+ */
+export function aplicarCorrecoes(imovel: Imovel, avaliacao: AvaliacaoImovel | undefined, filtros: Filtros | null): Imovel {
+  const originais: NonNullable<Imovel["originais_anuncio"]> = {};
+  const im: Imovel = { ...imovel };
+  if (avaliacao?.area_terreno_m2 != null) {
+    originais.area_terreno_m2 = imovel.area_terreno_m2;
+    im.area_terreno_m2 = avaliacao.area_terreno_m2;
+  }
+  if (avaliacao?.piscina != null) {
+    originais.piscina = imovel.piscina ?? null;
+    im.piscina = avaliacao.piscina;
+  }
+  if (avaliacao?.condominio != null) {
+    originais.condominio = imovel.condominio;
+    im.condominio = avaliacao.condominio;
+  }
+  const corrigido = Object.keys(originais).length > 0;
+  if (corrigido) im.originais_anuncio = originais;
+  // Reavalia também sem correção quando há filtros: assim filtros novos (ex.: térrea/sobrado) valem para resultados do cache.
+  if (!filtros) return im;
+  return { ...im, ...avaliarCriterios(im, filtros), campos_faltantes: camposFaltantes(im) };
 }

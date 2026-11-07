@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Faixa, Filtros, Finalidade, SimNao, TipoImovel } from "@/lib/contrato";
+import type { Faixa, Filtros, Finalidade, SimNao, TipoCasa, TipoImovel } from "@/lib/contrato";
 import { BAIRROS_POR_CIDADE, semAcento } from "@/lib/bairros";
 import { CIDADES, fontesDaCidade, type Cidade } from "@/lib/fontes";
 
@@ -26,6 +26,12 @@ const TIPOS: { id: TipoImovel; rotulo: string }[] = [
 const FINALIDADES: { id: Finalidade; rotulo: string }[] = [
   { id: "venda", rotulo: "Venda" },
   { id: "locacao", rotulo: "Locação" },
+];
+
+const TIPOS_CASA: { id: TipoCasa; rotulo: string }[] = [
+  { id: "indiferente", rotulo: "Indiferente" },
+  { id: "terrea", rotulo: "Térrea" },
+  { id: "sobrado", rotulo: "Sobrado" },
 ];
 
 const rotuloCls = "block text-xs font-medium uppercase tracking-wide text-ink-3 mb-1.5";
@@ -244,6 +250,26 @@ export function PainelFiltros({ cidade, onCidade, filtros, onFiltros, fontes, on
         </div>
         {semTipo && <p className="mt-1 text-xs text-bad">Escolha pelo menos um tipo.</p>}
       </fieldset>
+
+      {filtros.tipos.includes("casa") && (
+        <fieldset>
+          <legend className={rotuloCls}>Casa térrea ou sobrado</legend>
+          <div className="grid grid-cols-3 overflow-hidden rounded-md border border-line">
+            {TIPOS_CASA.map((t) => {
+              const ativo = (filtros.tipo_casa ?? "indiferente") === t.id;
+              return (
+                <button
+                  key={t.id} type="button" aria-pressed={ativo} onClick={() => set("tipo_casa", t.id)}
+                  className={`px-2 py-1.5 text-sm ${ativo ? "bg-ink text-bg font-medium" : "bg-surface text-ink-2 hover:bg-surface-2"}`}
+                >
+                  {t.rotulo}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-1 text-xs text-ink-3">Pela descrição do anúncio e pelo nº de pavimentos (2 ou mais = sobrado). Sem essa informação, o imóvel aparece como não verificado.</p>
+        </fieldset>
+      )}
 
       <SeletorBairros key={cidade} bairros={BAIRROS_POR_CIDADE[cidade] ?? []} selecionados={filtros.bairros} onChange={(b) => set("bairros", b)} />
 

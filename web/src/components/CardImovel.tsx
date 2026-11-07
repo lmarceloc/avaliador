@@ -143,10 +143,15 @@ export function CardImovel({ imovel: i, avaliacao, onAbrir, onIncluir }: Props) 
           <Dado rotulo="Vagas" valor={numero(i.vagas_total)} />
         </dl>
 
-        {(i.area_lazer || i.piscina) && (
+        {(i.area_lazer || i.piscina || i.originais_anuncio) && (
           <div className="flex flex-wrap gap-1.5">
             {i.area_lazer && <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-ink-2">Lazer / churrasqueira</span>}
             {i.piscina && <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-ink-2">Piscina</span>}
+            {i.originais_anuncio && (
+              <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent" title="Área do terreno, piscina ou condomínio corrigidos à mão">
+                ✎ Dados editados
+              </span>
+            )}
           </div>
         )}
 

@@ -92,7 +92,7 @@ describe("backend", { skip: !URL_TESTE && "defina DATABASE_URL_TESTE para rodar 
   });
 
   test("migrações aplicam uma vez só", async () => {
-    assert.deepEqual(await migrar(pool), ["001_inicial.sql", "002_pesquisas_salvas.sql", "003_usuarios.sql"]);
+    assert.deepEqual(await migrar(pool), ["001_inicial.sql", "002_pesquisas_salvas.sql", "003_usuarios.sql", "004_correcoes_avaliacao.sql"]);
     assert.deepEqual(await migrar(pool), []);
   });
 
@@ -195,6 +195,26 @@ describe("backend", { skip: !URL_TESTE && "defina DATABASE_URL_TESTE para rodar 
     assert.equal((await chamar("/avaliacoes", { method: "PUT", body: JSON.stringify({}) })).status, 400);
     const todas = await json(await chamar("/avaliacoes"));
     assert.deepEqual(todas.map((a: { imovel_id: string }) => a.imovel_id), ["flow-1"]);
+  });
+
+  test("avaliações: correções à mão de área do terreno, piscina e condomínio", async () => {
+    const put = (corpo: object) => chamar("/avaliacoes", { method: "PUT", body: JSON.stringify({ imovel_id: "flow-2", ...corpo }) });
+    let r = await put({ area_terreno_m2: 198.5, piscina: true, condominio: false });
+    assert.equal(r.status, 200);
+    let a = await json(r);
+    assert.equal(a.area_terreno_m2, 198.5);
+    assert.equal(a.piscina, true);
+    assert.equal(a.condominio, false);
+    const lida = (await json(await chamar("/avaliacoes"))).find((x: { imovel_id: string }) => x.imovel_id === "flow-2");
+    assert.equal(lida.area_terreno_m2, 198.5, "volta como número, não texto");
+
+    r = await put({ area_terreno_m2: null, piscina: null, condominio: null });
+    a = await json(r);
+    assert.equal(a.area_terreno_m2, null);
+    assert.equal(a.piscina, null);
+
+    for (const ruim of [{ area_terreno_m2: 0 }, { area_terreno_m2: -5 }, { area_terreno_m2: "198" }, { piscina: "sim" }, { condominio: 1 }])
+      assert.equal((await put(ruim)).status, 400, JSON.stringify(ruim));
   });
 
   test("análise de fotos: análise, logs, triagens e aprovação", async () => {

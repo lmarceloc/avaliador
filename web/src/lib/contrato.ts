@@ -4,6 +4,8 @@ export type TipoImovel = "casa" | "apartamento" | "terreno";
 /** Venda (preço total) ou locação (preço = aluguel mensal). */
 export type Finalidade = "venda" | "locacao";
 export type SimNao = "sim" | "nao" | "indiferente";
+/** Só para casas: térrea (1 pavimento) ou sobrado (2 ou mais). */
+export type TipoCasa = "indiferente" | "terrea" | "sobrado";
 export type Condominio = SimNao;
 
 export interface Faixa {
@@ -15,6 +17,8 @@ export interface Filtros {
   /** Opcional: pesquisas salvas antes do campo não o trazem e valem como "venda". */
   finalidade?: Finalidade;
   tipos: TipoImovel[];
+  /** Opcional: pesquisas salvas antes do campo não o trazem e valem como "indiferente". */
+  tipo_casa?: TipoCasa;
   bairros: string[];
   area_construida: Faixa;
   area_terreno: Faixa;
@@ -122,6 +126,8 @@ export interface Imovel {
   detalhe_coletado?: boolean;
   /** Opcional: código publicado pela imobiliária, usado na deduplicação (4.3, item 1). */
   codigo_comum?: string | null;
+  /** Só no front: valores do anúncio que a avaliadora corrigiu à mão (a chave existe = campo editado). */
+  originais_anuncio?: Partial<Pick<Imovel, "area_terreno_m2" | "piscina" | "condominio">>;
 }
 
 export interface ErroFonte {
@@ -153,12 +159,17 @@ export interface AvaliacaoImovel {
   padrao_acabamento: string | null;
   observacoes: string | null;
   incluido_avaliacao: boolean | null;
+  /** Correções feitas à mão quando o anúncio não traz o dado (null = vale o do anúncio). */
+  area_terreno_m2?: number | null;
+  piscina?: boolean | null;
+  condominio?: boolean | null;
   atualizado_em?: string;
 }
 
 export const FILTROS_VAZIOS: Filtros = {
   finalidade: "venda",
   tipos: ["casa"],
+  tipo_casa: "indiferente",
   bairros: [],
   area_construida: { min: null, max: null },
   area_terreno: { min: null, max: null },

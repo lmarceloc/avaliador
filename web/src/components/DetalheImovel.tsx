@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AvaliacaoImovel, Imovel } from "@/lib/contrato";
+import { tipoCasa } from "@/lib/regras";
 import { data, descreverCriterio, enderecoCompleto, m2, moeda, numero, ROTULO_CAMPO, ROTULO_TIPO } from "@/lib/formatar";
 import { ESTADOS_CONSERVACAO, PADROES_ACABAMENTO, rotuloPadrao } from "@/config/avaliacao";
 import { SugestaoAvaliacao } from "./SugestaoAvaliacao";
@@ -67,10 +68,10 @@ function Galeria({ fotos, parcial }: { fotos: string[]; parcial: boolean }) {
   );
 }
 
-function Linha({ rotulo, valor }: { rotulo: string; valor: React.ReactNode }) {
+function Linha({ rotulo, valor }: { rotulo: React.ReactNode; valor: React.ReactNode }) {
   return (
     <div className="flex justify-between gap-4 border-b border-line py-1.5 text-sm last:border-0">
-      <dt className="text-ink-2">{rotulo}</dt>
+      <dt className="self-center text-ink-2">{rotulo}</dt>
       <dd className="text-right font-medium tabular">{valor}</dd>
     </div>
   );
@@ -80,7 +81,56 @@ const simNao = (v: boolean | null) => (v === null ? "—" : v ? "Sim" : "Não");
 
 /** Só os campos editáveis pela avaliadora: serve para saber se há algo não salvo. */
 const campoEditavel = (a: Partial<AvaliacaoImovel>) =>
-  JSON.stringify([a.estado_conservacao ?? null, a.padrao_acabamento ?? null, a.observacoes ?? null, a.incluido_avaliacao ?? null]);
+  JSON.stringify([
+    a.estado_conservacao ?? null, a.padrao_acabamento ?? null, a.observacoes ?? null, a.incluido_avaliacao ?? null,
+    a.area_terreno_m2 ?? null, a.piscina ?? null, a.condominio ?? null,
+  ]);
+
+const campoCls = "w-28 rounded-md border border-line bg-surface px-2 py-1 text-right text-sm tabular";
+
+/** "198", "198,5" ou "1.200" → número; vazio ou inválido → null. */
+function lerArea(texto: string): number | null {
+  const n = Number(texto.trim().replace(/\./g, "").replace(",", "."));
+  return texto.trim() !== "" && Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Valor do anúncio em letra pequena quando a avaliadora corrigiu, ou o aviso de que o anúncio não traz. */
+function NotaAnuncio({ corrigido, anuncio }: { corrigido: boolean; anuncio: string }) {
+  return (
+    <span className="block text-[11px] font-normal text-ink-3">
+      {corrigido ? `editado · anúncio: ${anuncio}` : anuncio === "—" ? "não informado no anúncio" : "do anúncio"}
+    </span>
+  );
+}
+
+function CampoArea({ valor, anuncio, onChange }: { valor: number | null; anuncio: number | null; onChange: (v: number | null) => void }) {
+  const [texto, setTexto] = useState(valor === null ? "" : String(valor).replace(".", ","));
+  return (
+    <input
+      type="text" inputMode="decimal" aria-label="Área do terreno em m²" className={campoCls}
+      placeholder={anuncio === null ? "m²" : m2(anuncio)}
+      value={texto}
+      onChange={(e) => {
+        setTexto(e.target.value);
+        onChange(lerArea(e.target.value));
+      }}
+    />
+  );
+}
+
+function CampoSimNao({ valor, onChange, rotulo }: { valor: boolean | null; onChange: (v: boolean | null) => void; rotulo: string }) {
+  return (
+    <select
+      aria-label={rotulo} className="rounded-md border border-line bg-surface px-2 py-1 text-sm"
+      value={valor === null ? "" : valor ? "sim" : "nao"}
+      onChange={(e) => onChange(e.target.value === "" ? null : e.target.value === "sim")}
+    >
+      <option value="">Como no anúncio</option>
+      <option value="sim">Sim</option>
+      <option value="nao">Não</option>
+    </select>
+  );
+}
 
 interface Props {
   imovel: Imovel;
@@ -99,6 +149,17 @@ export function DetalheImovel({ imovel: i, avaliacao, onFechar, onSalvar, onAnte
   const [mensagem, setMensagem] = useState<string | null>(null);
   const painel = useRef<HTMLDivElement>(null);
   const alterado = campoEditavel(form) !== campoEditavel(avaliacao ?? {});
+  // O imóvel chega já com as correções salvas aplicadas; o valor do anúncio fica em originais_anuncio.
+  const original = i.originais_anuncio ?? {};
+  const doAnuncio = {
+    area_terreno_m2: "area_terreno_m2" in original ? original.area_terreno_m2 ?? null : i.area_terreno_m2,
+    piscina: "piscina" in original ? original.piscina ?? null : i.piscina ?? null,
+    condominio: "condominio" in original ? original.condominio ?? null : i.condominio,
+  };
+  const correcoesAlteradas =
+    JSON.stringify([form.area_terreno_m2 ?? null, form.piscina ?? null, form.condominio ?? null]) !==
+    JSON.stringify([avaliacao?.area_terreno_m2 ?? null, avaliacao?.piscina ?? null, avaliacao?.condominio ?? null]);
+  const casa = tipoCasa(i);
 
   // Pergunta antes de descartar edições (fechar, Esc, clique fora, trocar de imóvel).
   const podeDescartar = useCallback(
@@ -226,16 +287,37 @@ export function DetalheImovel({ imovel: i, avaliacao, onFechar, onSalvar, onAnte
             </section>
 
             <section className="rounded-lg border border-line bg-surface p-4">
-              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-3">Dados do anúncio</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-3">Dados do anúncio</h3>
+              <p className="mb-1 text-xs text-ink-3">
+                Se o anúncio não trouxer {i.tipo === "apartamento" ? "condomínio ou piscina" : i.tipo === "terreno" ? "área do terreno ou condomínio" : "área do terreno, condomínio ou piscina"}, preencha aqui: o valor vale nos filtros e na planilha.
+              </p>
               <dl>
                 <Linha rotulo="Endereço" valor={enderecoCompleto(i)} />
                 <Linha rotulo="Bairro" valor={i.endereco.bairro ?? "—"} />
                 <Linha rotulo="Área construída" valor={m2(i.area_construida_m2)} />
-                <Linha rotulo="Área do terreno" valor={m2(i.area_terreno_m2)} />
+                {i.tipo !== "apartamento" ? (
+                  <Linha
+                    rotulo={<>Área do terreno <NotaAnuncio corrigido={form.area_terreno_m2 != null} anuncio={m2(doAnuncio.area_terreno_m2)} /></>}
+                    valor={
+                      <span className="inline-flex items-center gap-1">
+                        <CampoArea key={i.id} valor={form.area_terreno_m2 ?? null} anuncio={doAnuncio.area_terreno_m2} onChange={(v) => setForm({ ...form, area_terreno_m2: v })} />
+                        <span className="text-ink-3">m²</span>
+                      </span>
+                    }
+                  />
+                ) : (
+                  <Linha rotulo="Área do terreno" valor={m2(i.area_terreno_m2)} />
+                )}
                 <Linha rotulo={i.finalidade === "locacao" ? "Aluguel mensal" : "Preço total"} valor={moeda(i.preco_total)} />
                 <Linha rotulo="Preço/m²" valor={moeda(i.preco_m2)} />
                 <Linha rotulo="Pavimentos" valor={numero(i.pavimentos)} />
-                <Linha rotulo="Condomínio" valor={simNao(i.condominio)} />
+                {i.tipo === "casa" && (
+                  <Linha rotulo="Térrea / sobrado" valor={casa === "terrea" ? "Térrea" : casa === "sobrado" ? "Sobrado" : "Não identificado"} />
+                )}
+                <Linha
+                  rotulo={<>Condomínio <NotaAnuncio corrigido={form.condominio != null} anuncio={simNao(doAnuncio.condominio)} /></>}
+                  valor={<CampoSimNao rotulo="Condomínio" valor={form.condominio ?? null} onChange={(v) => setForm({ ...form, condominio: v })} />}
+                />
                 <Linha rotulo="Dormitórios" valor={numero(i.dormitorios)} />
                 <Linha rotulo="Suítes" valor={numero(i.suites)} />
                 <Linha rotulo="Banheiros" valor={numero(i.banheiros)} />
@@ -243,12 +325,30 @@ export function DetalheImovel({ imovel: i, avaliacao, onFechar, onSalvar, onAnte
                 <Linha rotulo="Vagas descobertas" valor={numero(i.vagas_descobertas)} />
                 <Linha rotulo="Vagas (total)" valor={numero(i.vagas_total)} />
                 <Linha rotulo="Área de lazer / churrasqueira" valor={simNao(i.area_lazer ?? null)} />
-                <Linha rotulo="Piscina" valor={simNao(i.piscina ?? null)} />
+                {i.tipo !== "terreno" ? (
+                  <Linha
+                    rotulo={<>Piscina <NotaAnuncio corrigido={form.piscina != null} anuncio={simNao(doAnuncio.piscina)} /></>}
+                    valor={<CampoSimNao rotulo="Piscina" valor={form.piscina ?? null} onChange={(v) => setForm({ ...form, piscina: v })} />}
+                  />
+                ) : (
+                  <Linha rotulo="Piscina" valor={simNao(i.piscina ?? null)} />
+                )}
                 <Linha rotulo="Padrão (anúncio)" valor={i.padrao_acabamento_anuncio ?? "—"} />
                 <Linha rotulo="Data do anúncio" valor={data(i.data_anuncio)} />
                 <Linha rotulo="Informante" valor={i.fonte.informante ?? "—"} />
                 <Linha rotulo="Contato" valor={i.fonte.contato ?? "—"} />
               </dl>
+              {correcoesAlteradas && (
+                <button
+                  type="button" disabled={salvando} onClick={() => salvar({})}
+                  className="mt-3 w-full rounded-md bg-accent px-3 py-2 text-sm font-semibold text-accent-ink hover:brightness-110 disabled:opacity-50"
+                >
+                  {salvando ? "Salvando…" : "Salvar correções"}
+                </button>
+              )}
+              {mensagem && !correcoesAlteradas && (
+                <p className={`mt-2 text-xs ${mensagem.startsWith("Erro") ? "text-bad" : "text-ok"}`}>{mensagem}</p>
+              )}
             </section>
 
             <SugestaoAvaliacao

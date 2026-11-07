@@ -52,6 +52,16 @@ function enviar(res: http.ServerResponse, codigo: number, corpo: unknown) {
   res.end(JSON.stringify(corpo));
 }
 
+/** Correções à mão: área do terreno positiva (m²); piscina e condomínio sim/não. null ou ausente = vale o anúncio. */
+export function validarCorrecoes(a: { area_terreno_m2?: unknown; piscina?: unknown; condominio?: unknown }): string | null {
+  const area = a.area_terreno_m2;
+  if (area != null && (typeof area !== "number" || !Number.isFinite(area) || area <= 0 || area >= 10_000_000))
+    return "Área do terreno deve ser um número de m² maior que zero";
+  for (const campo of ["piscina", "condominio"] as const)
+    if (a[campo] != null && typeof a[campo] !== "boolean") return `${campo} deve ser sim, não ou vazio`;
+  return null;
+}
+
 const lista = (v: unknown, nome: string): Record<string, unknown>[] => {
   if (!Array.isArray(v) || v.some((x) => !x || typeof x !== "object")) throw new ErroHttp(400, `${nome} deve ser uma lista de objetos`);
   return v as Record<string, unknown>[];
@@ -82,6 +92,8 @@ async function rotear(req: http.IncomingMessage, deps: DepsServidor): Promise<[n
       if (!a?.imovel_id) throw new ErroHttp(400, "imovel_id é obrigatório");
       if (a.estado_conservacao && !ESTADOS_IBAPE.has(a.estado_conservacao))
         throw new ErroHttp(400, "Estado de conservação deve ser de A a I (IBAPE)");
+      const erro = validarCorrecoes(a);
+      if (erro) throw new ErroHttp(400, erro);
       return [200, await salvarAvaliacao(db, a)];
     }
     case "POST /analises-foto": {

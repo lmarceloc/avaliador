@@ -17,6 +17,11 @@ export async function PUT(request: Request) {
   if (!a?.imovel_id) return Response.json({ mensagem: "imovel_id é obrigatório" }, { status: 400 });
   if (a.estado_conservacao && !ESTADOS_IBAPE.has(a.estado_conservacao))
     return Response.json({ mensagem: "Estado de conservação deve ser de A a I (IBAPE)" }, { status: 400 });
+  const area = a.area_terreno_m2;
+  if (area != null && (typeof area !== "number" || !Number.isFinite(area) || area <= 0 || area >= 10_000_000))
+    return Response.json({ mensagem: "Área do terreno deve ser um número de m² maior que zero" }, { status: 400 });
+  if ([a.piscina, a.condominio].some((v) => v != null && typeof v !== "boolean"))
+    return Response.json({ mensagem: "Piscina e condomínio devem ser sim, não ou vazio" }, { status: 400 });
   try {
     return Response.json(await salvarAvaliacao(a));
   } catch (e) {

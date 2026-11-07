@@ -14,6 +14,7 @@ import {
 import { CIDADE_PADRAO, cidadeDasFontes, fontesDaCidade, nomeFonte, ufDaCidade, type Cidade } from "@/lib/fontes";
 import { exportarCsv, exportarXlsx, selecionarParaExportar } from "@/lib/exportar";
 import { ROTULO_TIPO } from "@/lib/formatar";
+import { aplicarCorrecoes } from "@/lib/regras";
 import { juntarRespostas, type PesquisaSalva, type ResumoPesquisa, type Selecao } from "@/lib/pesquisas";
 import { PainelFiltros } from "./PainelFiltros";
 import { CardImovel, CardSkeleton } from "./CardImovel";
@@ -145,6 +146,8 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
   const [filtrosAbertosMobile, setFiltrosAbertosMobile] = useState(false);
   const buscaAtual = useRef<string | null>(null);
   const ultimaReq = useRef<RequisicaoBusca | null>(null);
+  // Filtros da busca em tela: os resultados são reavaliados com eles junto com as correções da avaliadora.
+  const [filtrosBusca, setFiltrosBusca] = useState<Filtros | null>(null);
   // Seleção da tela (incluir/excluir). Com pesquisa aberta, espelha a dela; sem, fica só na memória até salvar.
   const [selecao, setSelecao] = useState<Selecao>({});
   const [pesquisa, setPesquisa] = useState<PesquisaAberta | null>(null);
@@ -225,6 +228,7 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
     setFiltros({ ...p.filtros, finalidade: p.filtros.finalidade ?? "venda" });
     setFontes(p.fontes);
     ultimaReq.current = novaRequisicao(p.filtros, p.fontes, false, cidadeSalva);
+    setFiltrosBusca(ultimaReq.current.filtros);
     setEstado("pronto");
     setErroGeral(null);
     setRapidos(RAPIDOS_INICIAIS);
@@ -275,6 +279,7 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
     const req = novaRequisicao(filtros, fontes, atualizar, cidade);
     buscaAtual.current = req.requisicao_id;
     ultimaReq.current = req;
+    setFiltrosBusca(req.filtros);
     if (!destino) {
       // Busca solta nova: começa sem seleção (a anterior ou foi salva ou o usuário aceitou perder).
       setSelecao({});
@@ -384,7 +389,10 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
 
   async function salvarAvaliacao(a: AvaliacaoImovel) {
     const antes = avaliacoes[a.imovel_id];
-    const analise = (x?: Partial<AvaliacaoImovel>) => JSON.stringify([x?.estado_conservacao ?? null, x?.padrao_acabamento ?? null, x?.observacoes ?? null]);
+    const analise = (x?: Partial<AvaliacaoImovel>) => JSON.stringify([
+      x?.estado_conservacao ?? null, x?.padrao_acabamento ?? null, x?.observacoes ?? null,
+      x?.area_terreno_m2 ?? null, x?.piscina ?? null, x?.condominio ?? null,
+    ]);
     if (analise(a) !== analise(antes)) {
       // incluido_avaliacao do banco não é mais usado pela tela: vai como estava.
       const salvo = await json<AvaliacaoImovel>(
@@ -398,7 +406,11 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
   // Desmarcar a caixinha do card volta para "não decidido" (null), não para "Excluído".
   const incluirNaPlanilha = (id: string, incluir: boolean) => marcar(id, incluir ? true : null);
 
-  const imoveis = useMemo(() => resposta?.imoveis ?? [], [resposta]);
+  // Correções à mão (área do terreno, piscina, condomínio) valem na tela, nos filtros e na planilha.
+  const imoveis = useMemo(
+    () => (resposta?.imoveis ?? []).map((i) => aplicarCorrecoes(i, avaliacoes[i.id], filtrosBusca)),
+    [resposta, avaliacoes, filtrosBusca],
+  );
   const paraExportar = useMemo(() => selecionarParaExportar(imoveis, avaliacoesTela), [imoveis, avaliacoesTela]);
 
   const visiveis = useMemo(() => {
@@ -558,7 +570,7 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
                 <div>
                   <p className="text-sm text-ink-2">
                     <strong className="text-ink">{imoveis.length}</strong> imóveis ·{" "}
-                    <span className="text-ok">{resposta.resumo?.atendem_todos ?? imoveis.filter((i) => i.atende).length} atendem todos</span>
+                    <span className="text-ok">{imoveis.filter((i) => i.atende).length} atendem todos</span>
                     {resposta.resumo && <> · {resposta.resumo.repetidos_removidos} repetidos agrupados</>}
                     {incluidos > 0 && <> · <span className="text-accent">{incluidos} {incluidos === 1 ? "incluído" : "incluídos"} na avaliação</span>
                       {incluidosOcultos > 0 && <span className="text-warn"> ({incluidosOcultos} {incluidosOcultos === 1 ? "oculto" : "ocultos"} pelos filtros da tela)</span>}</>}

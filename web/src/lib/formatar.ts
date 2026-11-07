@@ -40,6 +40,7 @@ export const ROTULO_CAMPO: Record<string, string> = {
   vagas_total: "Vagas (total)",
   area_lazer: "Área de lazer / churrasqueira",
   piscina: "Piscina",
+  tipo_casa: "Térrea / sobrado",
   data_anuncio: "Data do anúncio",
   fotos: "Fotos",
 };
@@ -54,6 +55,7 @@ function valorCampo(campo: string, v: unknown): string {
     return numero(v);
   }
   if (campo === "tipo") return ROTULO_TIPO[v as TipoImovel] ?? String(v);
+  if (campo === "tipo_casa") return v === "terrea" ? "térrea" : v === "sobrado" ? "sobrado" : String(v);
   return String(v);
 }
 
