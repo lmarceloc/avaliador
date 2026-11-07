@@ -271,6 +271,10 @@ export function PainelFiltros({ cidade, onCidade, filtros, onFiltros, fontes, on
         </fieldset>
       )}
 
+      {filtros.tipos.includes("casa") && (
+        <CampoSimNao rotulo="Casa geminada" valor={filtros.geminada ?? "indiferente"} onChange={(v) => set("geminada", v)} />
+      )}
+
       <SeletorBairros key={cidade} bairros={BAIRROS_POR_CIDADE[cidade] ?? []} selecionados={filtros.bairros} onChange={(b) => set("bairros", b)} />
 
       <CampoFaixa rotulo="Área construída" unidade="m²" faixa={filtros.area_construida} onChange={(f) => set("area_construida", f)} />

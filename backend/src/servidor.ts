@@ -53,11 +53,12 @@ function enviar(res: http.ServerResponse, codigo: number, corpo: unknown) {
 }
 
 /** Correções à mão: área do terreno positiva (m²); piscina e condomínio sim/não. null ou ausente = vale o anúncio. */
-export function validarCorrecoes(a: { area_terreno_m2?: unknown; piscina?: unknown; condominio?: unknown }): string | null {
+export function validarCorrecoes(a: { area_terreno_m2?: unknown; piscina?: unknown; condominio?: unknown; tipo_casa?: unknown; geminada?: unknown }): string | null {
   const area = a.area_terreno_m2;
   if (area != null && (typeof area !== "number" || !Number.isFinite(area) || area <= 0 || area >= 10_000_000))
     return "Área do terreno deve ser um número de m² maior que zero";
-  for (const campo of ["piscina", "condominio"] as const)
+  if (a.tipo_casa != null && a.tipo_casa !== "terrea" && a.tipo_casa !== "sobrado") return "tipo_casa deve ser terrea, sobrado ou vazio";
+  for (const campo of ["piscina", "condominio", "geminada"] as const)
     if (a[campo] != null && typeof a[campo] !== "boolean") return `${campo} deve ser sim, não ou vazio`;
   return null;
 }

@@ -391,7 +391,7 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
     const antes = avaliacoes[a.imovel_id];
     const analise = (x?: Partial<AvaliacaoImovel>) => JSON.stringify([
       x?.estado_conservacao ?? null, x?.padrao_acabamento ?? null, x?.observacoes ?? null,
-      x?.area_terreno_m2 ?? null, x?.piscina ?? null, x?.condominio ?? null,
+      x?.area_terreno_m2 ?? null, x?.piscina ?? null, x?.condominio ?? null, x?.tipo_casa ?? null, x?.geminada ?? null,
     ]);
     if (analise(a) !== analise(antes)) {
       // incluido_avaliacao do banco não é mais usado pela tela: vai como estava.
@@ -406,7 +406,7 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
   // Desmarcar a caixinha do card volta para "não decidido" (null), não para "Excluído".
   const incluirNaPlanilha = (id: string, incluir: boolean) => marcar(id, incluir ? true : null);
 
-  // Correções à mão (área do terreno, piscina, condomínio) valem na tela, nos filtros e na planilha.
+  // Correções à mão (área do terreno, piscina, condomínio, térrea/sobrado, geminada) valem na tela, nos filtros e na planilha.
   const imoveis = useMemo(
     () => (resposta?.imoveis ?? []).map((i) => aplicarCorrecoes(i, avaliacoes[i.id], filtrosBusca)),
     [resposta, avaliacoes, filtrosBusca],

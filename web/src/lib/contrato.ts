@@ -19,6 +19,8 @@ export interface Filtros {
   tipos: TipoImovel[];
   /** Opcional: pesquisas salvas antes do campo não o trazem e valem como "indiferente". */
   tipo_casa?: TipoCasa;
+  /** Só para casas. Opcional: pesquisas salvas antes do campo não o trazem. */
+  geminada?: SimNao;
   bairros: string[];
   area_construida: Faixa;
   area_terreno: Faixa;
@@ -126,8 +128,11 @@ export interface Imovel {
   detalhe_coletado?: boolean;
   /** Opcional: código publicado pela imobiliária, usado na deduplicação (4.3, item 1). */
   codigo_comum?: string | null;
+  /** Só no front (casas): térrea/sobrado e geminada, pelo anúncio ou corrigidos à mão. Ausente = calcular pelo anúncio. */
+  tipo_casa?: "terrea" | "sobrado" | null;
+  geminada?: boolean | null;
   /** Só no front: valores do anúncio que a avaliadora corrigiu à mão (a chave existe = campo editado). */
-  originais_anuncio?: Partial<Pick<Imovel, "area_terreno_m2" | "piscina" | "condominio">>;
+  originais_anuncio?: Partial<Pick<Imovel, "area_terreno_m2" | "piscina" | "condominio" | "tipo_casa" | "geminada">>;
 }
 
 export interface ErroFonte {
@@ -163,6 +168,8 @@ export interface AvaliacaoImovel {
   area_terreno_m2?: number | null;
   piscina?: boolean | null;
   condominio?: boolean | null;
+  tipo_casa?: "terrea" | "sobrado" | null;
+  geminada?: boolean | null;
   atualizado_em?: string;
 }
 
@@ -170,6 +177,7 @@ export const FILTROS_VAZIOS: Filtros = {
   finalidade: "venda",
   tipos: ["casa"],
   tipo_casa: "indiferente",
+  geminada: "indiferente",
   bairros: [],
   area_construida: { min: null, max: null },
   area_terreno: { min: null, max: null },

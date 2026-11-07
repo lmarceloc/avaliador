@@ -41,6 +41,7 @@ export const ROTULO_CAMPO: Record<string, string> = {
   area_lazer: "Área de lazer / churrasqueira",
   piscina: "Piscina",
   tipo_casa: "Térrea / sobrado",
+  geminada: "Casa geminada",
   data_anuncio: "Data do anúncio",
   fotos: "Fotos",
 };

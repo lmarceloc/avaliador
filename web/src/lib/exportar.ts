@@ -2,17 +2,21 @@
 import { depreciacaoDe } from "@/config/avaliacao";
 import type { AvaliacaoImovel, Imovel } from "./contrato";
 import { enderecoCompleto } from "./formatar";
+import { casaGeminada, tipoCasa } from "./regras";
 
 const COLUNAS = [
   "Nº", "Endereço com nº", "Bairro", "Área construída (m²)", "Área do terreno (m²)", "Preço total (R$)",
   "Preço/m² (R$)", "Pavimentos", "Condomínio", "Dormitórios", "Suítes", "Banheiros", "Vagas cobertas",
   "Vagas descobertas", "Vagas total", "Área de lazer / churrasqueira", "Piscina", "Padrão de acabamento (VEIU)", "Idade", "Estado IBAPE", "Depreciação IBAPE (%)", "Data do evento",
   "Informante", "Contato", "Fonte de pesquisa", "Link do anúncio", "Observações", "Finalidade",
+  "Térrea / sobrado", "Casa geminada",
 ];
 // Percentual do Quadro 1 do IBAPE: sempre com duas casas ("0,00", "0,32").
 const COL_DEPRECIACAO = COLUNAS.indexOf("Depreciação IBAPE (%)");
 
 type Linha = (string | number | null)[];
+
+const ROTULO_TIPO_CASA: Record<string, string> = { terrea: "Térrea", sobrado: "Sobrado" };
 
 function linhas(imoveis: Imovel[], avaliacoes: Record<string, AvaliacaoImovel>): Linha[] {
   return imoveis.map((i, n) => {
@@ -49,6 +53,9 @@ function linhas(imoveis: Imovel[], avaliacoes: Record<string, AvaliacaoImovel>):
       a?.observacoes || null,
       // Na locação, "Preço total" é o aluguel mensal.
       i.finalidade === "locacao" ? "Locação (aluguel mensal)" : "Venda",
+      // Só casas; já com a correção da avaliadora (aplicarCorrecoes), senão o que o anúncio indica.
+      ROTULO_TIPO_CASA[(i.tipo_casa !== undefined ? i.tipo_casa : tipoCasa(i)) ?? ""] ?? null,
+      i.tipo !== "casa" ? null : bool(i.geminada !== undefined ? i.geminada : casaGeminada(i)),
     ];
   });
 }

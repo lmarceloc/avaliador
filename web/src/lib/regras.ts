@@ -62,20 +62,38 @@ export function camposFaltantes(imovel: Imovel): string[] {
  * número de pavimentos (1 = térrea, 2 ou mais = sobrado) e por último a palavra "térrea". Sem nada disso, null.
  * Nomes de categoria como "Casa/Sobrado" não contam: o site usa o mesmo rótulo para os dois.
  */
-export function tipoCasa(i: Pick<Imovel, "tipo" | "titulo" | "url_anuncio" | "pavimentos">): "terrea" | "sobrado" | null {
-  if (i.tipo !== "casa") return null;
+/** Título + caminho do endereço do anúncio, sem acento e em minúsculas. */
+function textoAnuncio(i: Pick<Imovel, "titulo" | "url_anuncio">): string {
   let caminho = "";
   try {
     caminho = decodeURIComponent(new URL(i.url_anuncio).pathname);
   } catch {
     /* url inválida: só o título */
   }
-  const texto = semAcento(`${i.titulo ?? ""} ${caminho}`).replace(/casas?\s*(?:[/|-]|\bou\b|\be\b)\s*sobrados?/g, " ");
+  return semAcento(`${i.titulo ?? ""} ${caminho}`);
+}
+
+export function tipoCasa(i: Pick<Imovel, "tipo" | "titulo" | "url_anuncio" | "pavimentos">): "terrea" | "sobrado" | null {
+  if (i.tipo !== "casa") return null;
+  const texto = textoAnuncio(i).replace(/casas?\s*(?:[/|-]|\bou\b|\be\b)\s*sobrados?/g, " ");
   if (/sobrado|assobradad/.test(texto)) return "sobrado";
   if (i.pavimentos !== null && i.pavimentos !== undefined) return i.pavimentos >= 2 ? "sobrado" : "terrea";
   if (/\bterre[ao]\b|terrea/.test(texto)) return "terrea";
   return null;
 }
+
+/** Casa geminada pelo anúncio: "geminada" → sim; "não geminada" ou "isolada" → não; sem menção → null. */
+export function casaGeminada(i: Pick<Imovel, "tipo" | "titulo" | "url_anuncio">): boolean | null {
+  if (i.tipo !== "casa") return null;
+  const texto = textoAnuncio(i);
+  if (/\bnao[\s-]+geminad|\bisolad/.test(texto)) return false;
+  if (/geminad/.test(texto)) return true;
+  return null;
+}
+
+// Com a avaliação aplicada (aplicarCorrecoes) o imóvel já traz o valor; sem ela (coleta no backend), vem do anúncio.
+const tipoCasaDe = (i: Imovel) => (i.tipo_casa !== undefined ? i.tipo_casa : tipoCasa(i));
+const geminadaDe = (i: Imovel) => (i.geminada !== undefined ? i.geminada : casaGeminada(i));
 
 // ---------- 4.2 Avaliação dos filtros ----------
 
@@ -124,7 +142,7 @@ export function avaliarCriterios(imovel: Imovel, filtros: Filtros): Pick<Imovel,
 
   // Térrea/sobrado só se aplica a casa. Requisições antigas não trazem o filtro.
   if (filtros.tipo_casa && filtros.tipo_casa !== "indiferente" && imovel.tipo === "casa") {
-    const achado = tipoCasa(imovel);
+    const achado = tipoCasaDe(imovel);
     c.push({
       campo: "tipo_casa",
       exigido: filtros.tipo_casa,
@@ -132,6 +150,8 @@ export function avaliarCriterios(imovel: Imovel, filtros: Filtros): Pick<Imovel,
       resultado: achado === null ? "nao_verificado" : achado === filtros.tipo_casa ? "atende" : "nao_atende",
     });
   }
+  if (filtros.geminada && filtros.geminada !== "indiferente" && imovel.tipo === "casa")
+    c.push(avaliarSimNao("geminada", geminadaDe(imovel), filtros.geminada));
 
   if (filtros.bairros.length > 0) {
     const bairro = imovel.endereco.bairro;
@@ -315,6 +335,18 @@ export function aplicarCorrecoes(imovel: Imovel, avaliacao: AvaliacaoImovel | un
   if (avaliacao?.condominio != null) {
     originais.condominio = imovel.condominio;
     im.condominio = avaliacao.condominio;
+  }
+  if (imovel.tipo === "casa") {
+    im.tipo_casa = tipoCasa(imovel);
+    im.geminada = casaGeminada(imovel);
+    if (avaliacao?.tipo_casa != null) {
+      originais.tipo_casa = im.tipo_casa;
+      im.tipo_casa = avaliacao.tipo_casa;
+    }
+    if (avaliacao?.geminada != null) {
+      originais.geminada = im.geminada;
+      im.geminada = avaliacao.geminada;
+    }
   }
   const corrigido = Object.keys(originais).length > 0;
   if (corrigido) im.originais_anuncio = originais;

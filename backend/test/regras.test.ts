@@ -1,7 +1,7 @@
 // Regras compartilhadas (web/src/lib/regras.ts): térrea/sobrado e correções da avaliadora. Roda sem banco.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { aplicarCorrecoes, avaliarCriterios, tipoCasa } from "../../web/src/lib/regras";
+import { aplicarCorrecoes, avaliarCriterios, casaGeminada, tipoCasa } from "../../web/src/lib/regras";
 import { FILTROS_VAZIOS, type AvaliacaoImovel, type Filtros, type Imovel } from "../../web/src/lib/contrato";
 
 const casa = (p: Partial<Imovel> = {}): Imovel => ({
@@ -63,4 +63,35 @@ test("aplicarCorrecoes: valores editados substituem os do anúncio e reavaliam o
   const sem = aplicarCorrecoes(casa({ area_terreno_m2: 300 }), { ...a, area_terreno_m2: null, piscina: null, condominio: null }, null);
   assert.equal(sem.area_terreno_m2, 300);
   assert.equal(sem.originais_anuncio, undefined);
+});
+
+test("casaGeminada: pela menção no anúncio", () => {
+  assert.equal(casaGeminada(casa({ titulo: "Casa geminada 2 quartos" })), true);
+  assert.equal(casaGeminada(casa({ url_anuncio: "https://imob.test/imovel/sobrado-geminado-orfas" })), true);
+  assert.equal(casaGeminada(casa({ titulo: "Casa não geminada" })), false);
+  assert.equal(casaGeminada(casa({ titulo: "Casa isolada no terreno" })), false);
+  assert.equal(casaGeminada(casa()), null);
+  assert.equal(casaGeminada(casa({ tipo: "apartamento", titulo: "Geminado" })), null);
+});
+
+test("correção à mão de térrea/sobrado e geminada vale no filtro", () => {
+  const f: Filtros = { ...FILTROS_VAZIOS, tipo_casa: "terrea", geminada: "nao" };
+  const base = casa({ titulo: "Sobrado geminado" });
+  const sem = aplicarCorrecoes(base, undefined, f);
+  assert.equal(sem.tipo_casa, "sobrado");
+  assert.equal(sem.geminada, true);
+  assert.equal(sem.atende, false);
+  assert.equal(sem.originais_anuncio, undefined);
+
+  const a: AvaliacaoImovel = {
+    imovel_id: base.id, estado_conservacao: null, padrao_acabamento: null, observacoes: null, incluido_avaliacao: null,
+    tipo_casa: "terrea", geminada: false,
+  };
+  const com = aplicarCorrecoes(base, a, f);
+  assert.equal(com.tipo_casa, "terrea");
+  assert.equal(com.geminada, false);
+  assert.deepEqual(com.originais_anuncio, { tipo_casa: "sobrado", geminada: true });
+  assert.equal(com.atende, true);
+  // Apartamento: os campos de casa não se aplicam.
+  assert.equal(aplicarCorrecoes(casa({ tipo: "apartamento" }), a, f).tipo_casa, undefined);
 });

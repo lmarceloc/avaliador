@@ -92,7 +92,7 @@ describe("backend", { skip: !URL_TESTE && "defina DATABASE_URL_TESTE para rodar 
   });
 
   test("migrações aplicam uma vez só", async () => {
-    assert.deepEqual(await migrar(pool), ["001_inicial.sql", "002_pesquisas_salvas.sql", "003_usuarios.sql", "004_correcoes_avaliacao.sql"]);
+    assert.deepEqual(await migrar(pool), ["001_inicial.sql", "002_pesquisas_salvas.sql", "003_usuarios.sql", "004_correcoes_avaliacao.sql", "005_tipo_casa_geminada.sql"]);
     assert.deepEqual(await migrar(pool), []);
   });
 
@@ -213,7 +213,13 @@ describe("backend", { skip: !URL_TESTE && "defina DATABASE_URL_TESTE para rodar 
     assert.equal(a.area_terreno_m2, null);
     assert.equal(a.piscina, null);
 
-    for (const ruim of [{ area_terreno_m2: 0 }, { area_terreno_m2: -5 }, { area_terreno_m2: "198" }, { piscina: "sim" }, { condominio: 1 }])
+    r = await put({ tipo_casa: "sobrado", geminada: true });
+    a = await json(r);
+    assert.equal(a.tipo_casa, "sobrado");
+    assert.equal(a.geminada, true);
+
+    for (const ruim of [{ area_terreno_m2: 0 }, { area_terreno_m2: -5 }, { area_terreno_m2: "198" }, { piscina: "sim" }, { condominio: 1 },
+      { tipo_casa: "casa" }, { geminada: "sim" }])
       assert.equal((await put(ruim)).status, 400, JSON.stringify(ruim));
   });
 

@@ -20,8 +20,10 @@ export async function PUT(request: Request) {
   const area = a.area_terreno_m2;
   if (area != null && (typeof area !== "number" || !Number.isFinite(area) || area <= 0 || area >= 10_000_000))
     return Response.json({ mensagem: "Área do terreno deve ser um número de m² maior que zero" }, { status: 400 });
-  if ([a.piscina, a.condominio].some((v) => v != null && typeof v !== "boolean"))
-    return Response.json({ mensagem: "Piscina e condomínio devem ser sim, não ou vazio" }, { status: 400 });
+  if ([a.piscina, a.condominio, a.geminada].some((v) => v != null && typeof v !== "boolean"))
+    return Response.json({ mensagem: "Piscina, condomínio e geminada devem ser sim, não ou vazio" }, { status: 400 });
+  if (a.tipo_casa != null && a.tipo_casa !== "terrea" && a.tipo_casa !== "sobrado")
+    return Response.json({ mensagem: "Térrea/sobrado deve ser térrea, sobrado ou vazio" }, { status: 400 });
   try {
     return Response.json(await salvarAvaliacao(a));
   } catch (e) {

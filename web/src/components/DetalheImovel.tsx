@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AvaliacaoImovel, Imovel } from "@/lib/contrato";
-import { tipoCasa } from "@/lib/regras";
+import { casaGeminada, tipoCasa } from "@/lib/regras";
 import { data, descreverCriterio, enderecoCompleto, m2, moeda, numero, ROTULO_CAMPO, ROTULO_TIPO } from "@/lib/formatar";
 import { ESTADOS_CONSERVACAO, PADROES_ACABAMENTO, rotuloPadrao } from "@/config/avaliacao";
 import { SugestaoAvaliacao } from "./SugestaoAvaliacao";
@@ -83,7 +83,7 @@ const simNao = (v: boolean | null) => (v === null ? "—" : v ? "Sim" : "Não");
 const campoEditavel = (a: Partial<AvaliacaoImovel>) =>
   JSON.stringify([
     a.estado_conservacao ?? null, a.padrao_acabamento ?? null, a.observacoes ?? null, a.incluido_avaliacao ?? null,
-    a.area_terreno_m2 ?? null, a.piscina ?? null, a.condominio ?? null,
+    a.area_terreno_m2 ?? null, a.piscina ?? null, a.condominio ?? null, a.tipo_casa ?? null, a.geminada ?? null,
   ]);
 
 const campoCls = "w-28 rounded-md border border-line bg-surface px-2 py-1 text-right text-sm tabular";
@@ -108,7 +108,7 @@ function CampoArea({ valor, anuncio, onChange }: { valor: number | null; anuncio
   return (
     <input
       type="text" inputMode="decimal" aria-label="Área do terreno em m²" className={campoCls}
-      placeholder={anuncio === null ? "m²" : m2(anuncio)}
+      placeholder={anuncio === null ? "ex.: 198" : String(anuncio).replace(".", ",")}
       value={texto}
       onChange={(e) => {
         setTexto(e.target.value);
@@ -155,11 +155,14 @@ export function DetalheImovel({ imovel: i, avaliacao, onFechar, onSalvar, onAnte
     area_terreno_m2: "area_terreno_m2" in original ? original.area_terreno_m2 ?? null : i.area_terreno_m2,
     piscina: "piscina" in original ? original.piscina ?? null : i.piscina ?? null,
     condominio: "condominio" in original ? original.condominio ?? null : i.condominio,
+    // Térrea/sobrado e geminada: sempre recalculados do anúncio (o imóvel em tela pode trazer a correção).
+    tipo_casa: tipoCasa(i),
+    geminada: casaGeminada(i),
   };
-  const correcoesAlteradas =
-    JSON.stringify([form.area_terreno_m2 ?? null, form.piscina ?? null, form.condominio ?? null]) !==
-    JSON.stringify([avaliacao?.area_terreno_m2 ?? null, avaliacao?.piscina ?? null, avaliacao?.condominio ?? null]);
-  const casa = tipoCasa(i);
+  const correcoes = (a?: Partial<AvaliacaoImovel>) =>
+    JSON.stringify([a?.area_terreno_m2 ?? null, a?.piscina ?? null, a?.condominio ?? null, a?.tipo_casa ?? null, a?.geminada ?? null]);
+  const correcoesAlteradas = correcoes(form) !== correcoes(avaliacao);
+  const rotuloCasa = (v: "terrea" | "sobrado" | null) => (v === "terrea" ? "Térrea" : v === "sobrado" ? "Sobrado" : "—");
 
   // Pergunta antes de descartar edições (fechar, Esc, clique fora, trocar de imóvel).
   const podeDescartar = useCallback(
@@ -289,7 +292,7 @@ export function DetalheImovel({ imovel: i, avaliacao, onFechar, onSalvar, onAnte
             <section className="rounded-lg border border-line bg-surface p-4">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-3">Dados do anúncio</h3>
               <p className="mb-1 text-xs text-ink-3">
-                Se o anúncio não trouxer {i.tipo === "apartamento" ? "condomínio ou piscina" : i.tipo === "terreno" ? "área do terreno ou condomínio" : "área do terreno, condomínio ou piscina"}, preencha aqui: o valor vale nos filtros e na planilha.
+                Se o anúncio não trouxer {i.tipo === "apartamento" ? "condomínio ou piscina" : i.tipo === "terreno" ? "área do terreno ou condomínio" : "área do terreno, térrea/sobrado, geminada, condomínio ou piscina"}, preencha aqui: o valor vale nos filtros e na planilha.
               </p>
               <dl>
                 <Linha rotulo="Endereço" valor={enderecoCompleto(i)} />
@@ -312,7 +315,26 @@ export function DetalheImovel({ imovel: i, avaliacao, onFechar, onSalvar, onAnte
                 <Linha rotulo="Preço/m²" valor={moeda(i.preco_m2)} />
                 <Linha rotulo="Pavimentos" valor={numero(i.pavimentos)} />
                 {i.tipo === "casa" && (
-                  <Linha rotulo="Térrea / sobrado" valor={casa === "terrea" ? "Térrea" : casa === "sobrado" ? "Sobrado" : "Não identificado"} />
+                  <>
+                    <Linha
+                      rotulo={<>Térrea / sobrado <NotaAnuncio corrigido={form.tipo_casa != null} anuncio={rotuloCasa(doAnuncio.tipo_casa)} /></>}
+                      valor={
+                        <select
+                          aria-label="Térrea ou sobrado" className="rounded-md border border-line bg-surface px-2 py-1 text-sm"
+                          value={form.tipo_casa ?? ""}
+                          onChange={(e) => setForm({ ...form, tipo_casa: e.target.value === "terrea" || e.target.value === "sobrado" ? e.target.value : null })}
+                        >
+                          <option value="">Como no anúncio</option>
+                          <option value="terrea">Térrea</option>
+                          <option value="sobrado">Sobrado</option>
+                        </select>
+                      }
+                    />
+                    <Linha
+                      rotulo={<>Casa geminada <NotaAnuncio corrigido={form.geminada != null} anuncio={simNao(doAnuncio.geminada)} /></>}
+                      valor={<CampoSimNao rotulo="Casa geminada" valor={form.geminada ?? null} onChange={(v) => setForm({ ...form, geminada: v })} />}
+                    />
+                  </>
                 )}
                 <Linha
                   rotulo={<>Condomínio <NotaAnuncio corrigido={form.condominio != null} anuncio={simNao(doAnuncio.condominio)} /></>}

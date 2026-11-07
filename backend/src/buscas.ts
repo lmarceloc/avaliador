@@ -53,6 +53,8 @@ export function validarRequisicao(corpo: unknown): Validada {
     erro = `Fonte de outra cidade: ${req.fontes.filter((f: string) => CIDADE_DA_FONTE[f] !== (req.cidade || "Ponta Grossa")).join(", ")}`;
   else if (req.filtros.tipo_casa != null && !["indiferente", "terrea", "sobrado"].includes(req.filtros.tipo_casa))
     erro = 'filtros.tipo_casa deve ser "indiferente", "terrea" ou "sobrado"';
+  else if (req.filtros.geminada != null && !["indiferente", "sim", "nao"].includes(req.filtros.geminada))
+    erro = 'filtros.geminada deve ser "indiferente", "sim" ou "nao"';
   else if (req.filtros.finalidade != null && !["venda", "locacao"].includes(req.filtros.finalidade))
     erro = 'filtros.finalidade deve ser "venda" ou "locacao"';
 
@@ -63,6 +65,7 @@ export function validarRequisicao(corpo: unknown): Validada {
     tipos: (f.tipos || []).slice().sort(),
     // Antigas não têm o campo; só entra na chave quando escolhido (o cache das buscas sem ele continua valendo).
     ...(f.tipo_casa === "terrea" || f.tipo_casa === "sobrado" ? { tipo_casa: f.tipo_casa } : {}),
+    ...(f.geminada === "sim" || f.geminada === "nao" ? { geminada: f.geminada } : {}),
     bairros: (f.bairros || []).slice().sort(),
     area_construida: faixa(f.area_construida),
     area_terreno: faixa(f.area_terreno),
