@@ -27,8 +27,11 @@ const LIMITE_POLLING_MS = 5 * 60 * 1000;
 type Estado = "ocioso" | "carregando" | "pronto" | "erro";
 type Ordem = "padrao" | "preco" | "area" | "preco_m2" | "data";
 type FiltroStatus = "todos" | "atende" | "nao_atende" | "repetido" | "outlier";
-/** "selecionados": só os marcados para a planilha — exatamente o que vai para a exportação. */
-type Aba = "todos" | "selecionados";
+/**
+ * "analisar": o que ainda não foi selecionado (o selecionado sai daqui na hora).
+ * "selecionados": os marcados para a planilha — exatamente o que vai para a exportação.
+ */
+type Aba = "analisar" | "selecionados";
 
 interface Rapidos {
   tipo: TipoImovel | "";
@@ -139,7 +142,11 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
   const [repetindo, setRepetindo] = useState<string | null>(null);
   const [avaliacoes, setAvaliacoes] = useState<Record<string, AvaliacaoImovel>>({});
   const [rapidos, setRapidos] = useState<Rapidos>(RAPIDOS_INICIAIS);
-  const [aba, setAba] = useState<Aba>("todos");
+  const [aba, setAba] = useState<Aba>("analisar");
+  // Ordem da lista quando o detalhe foi aberto: as setas ← → seguem nela mesmo que o imóvel aberto saia da aba.
+  const [ordemDetalhe, setOrdemDetalhe] = useState<string[] | null>(null);
+  // "Fulano foi para Selecionados · Desfazer", depois de selecionar na aba Analisar.
+  const [movido, setMovido] = useState<{ id: string; titulo: string } | null>(null);
   const [ordem, setOrdem] = useState<Ordem>("padrao");
   const [crescente, setCrescente] = useState(true);
   const [aberto, setAberto] = useState<string | null>(null);
@@ -159,6 +166,12 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
   const [pediuNome, setPediuNome] = useState(false);
   // De onde vieram os resultados da tela, para salvar sem reenviar os imóveis: busca principal + repetições de fonte.
   const [origem, setOrigem] = useState<{ requisicao_id: string; extras: string[] } | null>(null);
+
+  useEffect(() => {
+    if (!movido) return;
+    const t = setTimeout(() => setMovido(null), 6000);
+    return () => clearTimeout(t);
+  }, [movido]);
 
   useEffect(() => {
     fetch("/api/avaliacoes")
@@ -213,7 +226,7 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
     setResposta(null);
     setEstado("ocioso");
     setErroGeral(null);
-    setAba("todos");
+    setAba("analisar");
     setOrigem(null);
   }
 
@@ -232,7 +245,7 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
     setEstado("pronto");
     setErroGeral(null);
     setRapidos(RAPIDOS_INICIAIS);
-    setAba(Object.values(p.selecao).some(Boolean) ? "selecionados" : "todos");
+    setAba(Object.values(p.selecao).some(Boolean) ? "selecionados" : "analisar");
     setDialogo(null);
   }
 
@@ -291,7 +304,7 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
     setResposta(null);
     setProgresso(fontesIniciais(fontes));
     setRapidos(RAPIDOS_INICIAIS);
-    setAba("todos");
+    setAba("analisar");
     setFiltrosAbertosMobile(false);
     try {
       const r = await executarBusca(
@@ -400,11 +413,23 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
       );
       setAvaliacoes((atual) => ({ ...atual, [salvo.imovel_id]: salvo }));
     }
-    if ((a.incluido_avaliacao ?? null) !== (selecao[a.imovel_id] ?? null)) await marcar(a.imovel_id, a.incluido_avaliacao ?? null);
+    if ((a.incluido_avaliacao ?? null) !== (selecao[a.imovel_id] ?? null)) {
+      avisarMovido(a.imovel_id, a.incluido_avaliacao ?? null);
+      await marcar(a.imovel_id, a.incluido_avaliacao ?? null);
+    }
   }
 
   // Desmarcar a caixinha do card volta para "não decidido" (null), não para "Excluído".
-  const incluirNaPlanilha = (id: string, incluir: boolean) => marcar(id, incluir ? true : null);
+  const incluirNaPlanilha = (id: string, incluir: boolean) => {
+    avisarMovido(id, incluir ? true : null);
+    return marcar(id, incluir ? true : null);
+  };
+
+  /** Na aba Analisar, selecionar tira o imóvel da lista: avisa para onde foi, com Desfazer. */
+  function avisarMovido(id: string, valor: boolean | null) {
+    if (valor === true && aba === "analisar" && selecao[id] !== true)
+      setMovido({ id, titulo: resposta?.imoveis?.find((i) => i.id === id)?.titulo ?? "Imóvel" });
+  }
 
   // Correções à mão (área do terreno, piscina, condomínio, térrea/sobrado, geminada) valem na tela, nos filtros e na planilha.
   const imoveis = useMemo(
@@ -417,6 +442,7 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
     const r = rapidos;
     // Na aba de selecionados os filtros rápidos não se aplicam: mostra tudo o que vai para a planilha.
     const lista = aba === "selecionados" ? paraExportar : imoveis.filter((i) => {
+      if (selecao[i.id] === true) return false; // já selecionado: está na outra aba
       const reprovado = i.criterios.some((c) => c.resultado === "nao_atende");
       if (!r.mostrarFora && reprovado && r.status !== "nao_atende") return false;
       if (r.tipo && i.tipo !== r.tipo) return false;
@@ -445,7 +471,7 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
       if (ordem === "padrao") return Number(b.atende) - Number(a.atende) || cmp(a.preco_m2, b.preco_m2, true);
       return cmp(chave[ordem](a), chave[ordem](b), crescente);
     });
-  }, [imoveis, paraExportar, aba, rapidos, ordem, crescente]);
+  }, [imoveis, paraExportar, aba, rapidos, ordem, crescente, selecao]);
 
   const ocultosForaDoFiltro = useMemo(
     () => (rapidos.mostrarFora ? 0 : imoveis.filter((i) => i.criterios.some((c) => c.resultado === "nao_atende")).length),
@@ -457,14 +483,25 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
     [imoveis],
   );
 
-  const indiceAberto = aberto ? visiveis.findIndex((i) => i.id === aberto) : -1;
-  const imovelAberto = indiceAberto >= 0 ? visiveis[indiceAberto] : imoveis.find((i) => i.id === aberto);
-  const fecharDetalhe = useCallback(() => setAberto(null), []);
+  const imovelAberto = aberto ? imoveis.find((i) => i.id === aberto) : undefined;
+  const fecharDetalhe = useCallback(() => {
+    setAberto(null);
+    setOrdemDetalhe(null);
+  }, []);
+  const abrirDetalhe = (id: string) => {
+    setAberto(id);
+    setOrdemDetalhe(visiveis.map((i) => i.id));
+  };
 
   const incluidos = paraExportar.length;
   const idsVisiveis = new Set(visiveis.map((i) => i.id));
-  // Incluídos que os filtros rápidos da tela estão escondendo (continuam indo para a planilha).
-  const incluidosOcultos = aba === "selecionados" ? 0 : paraExportar.filter((i) => !idsVisiveis.has(i.id)).length;
+  const aAnalisar = imoveis.filter((i) => selecao[i.id] !== true).length;
+
+  // Setas do detalhe: andam na ordem de quando ele foi aberto, pulando o que saiu da aba (ex.: acabou de ser selecionado).
+  const navegacao = ordemDetalhe ?? visiveis.map((i) => i.id);
+  const posAberto = aberto ? navegacao.indexOf(aberto) : -1;
+  const anteriorId = posAberto > 0 ? navegacao.slice(0, posAberto).reverse().find((id) => idsVisiveis.has(id)) : undefined;
+  const proximoId = posAberto >= 0 ? navegacao.slice(posAberto + 1).find((id) => idsVisiveis.has(id)) : undefined;
   const falhas = (resposta?.fontes ?? []).filter((f) => f.status === "erro");
   const selCls = "rounded-md border border-line bg-surface px-2 py-1.5 text-sm";
 
@@ -572,8 +609,7 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
                     <strong className="text-ink">{imoveis.length}</strong> imóveis ·{" "}
                     <span className="text-ok">{imoveis.filter((i) => i.atende).length} atendem todos</span>
                     {resposta.resumo && <> · {resposta.resumo.repetidos_removidos} repetidos agrupados</>}
-                    {incluidos > 0 && <> · <span className="text-accent">{incluidos} {incluidos === 1 ? "incluído" : "incluídos"} na avaliação</span>
-                      {incluidosOcultos > 0 && <span className="text-warn"> ({incluidosOcultos} {incluidosOcultos === 1 ? "oculto" : "ocultos"} pelos filtros da tela)</span>}</>}
+                    {incluidos > 0 && <> · <span className="text-accent">{incluidos} {incluidos === 1 ? "incluído" : "incluídos"} na avaliação</span></>}
                   </p>
                   <p className="text-xs text-ink-3">
                     {(resposta.fontes ?? []).filter((f) => f.status === "ok").map((f) => `${f.nome} (${f.itens})`).join(" · ")}
@@ -594,7 +630,7 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
 
               {imoveis.length > 0 && (
                 <div role="tablist" aria-label="Resultados" className="flex gap-1 border-b border-line">
-                  {([["todos", `Todos (${imoveis.length})`], ["selecionados", `Selecionados (${incluidos})`]] as const).map(([id, rotulo]) => (
+                  {([["analisar", `Analisar (${aAnalisar})`], ["selecionados", `Selecionados (${incluidos})`]] as const).map(([id, rotulo]) => (
                     <button
                       key={id} type="button" role="tab" aria-selected={aba === id} onClick={() => setAba(id)}
                       className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${aba === id ? "border-accent text-ink" : "border-transparent text-ink-2 hover:text-ink"}`}
@@ -608,7 +644,7 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
               {imoveis.length > 0 && (
                 <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface p-3">
                   {aba === "selecionados" ? (
-                    <p className="text-sm text-ink-2">Só os imóveis marcados para a planilha. Desmarcar “Na planilha” tira o imóvel daqui.</p>
+                    <p className="text-sm text-ink-2">Os imóveis já selecionados (vão para a planilha). Desmarcar “Planilha” devolve o imóvel para Analisar.</p>
                   ) : (<>
                   <select aria-label="Tipo" className={selCls} value={rapidos.tipo} onChange={(e) => setRapidos({ ...rapidos, tipo: e.target.value as TipoImovel | "" })}>
                     <option value="">Todos os tipos</option>
@@ -659,7 +695,12 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
               {visiveis.length === 0 && aba === "selecionados" ? (
                 <div className="rounded-lg border border-dashed border-line bg-surface p-10 text-center">
                   <p className="font-semibold">Nenhum imóvel selecionado.</p>
-                  <p className="mt-1 text-sm text-ink-2">Marque a caixinha “Planilha” nos cards da aba Todos.</p>
+                  <p className="mt-1 text-sm text-ink-2">Marque a caixinha “Planilha” nos cards da aba Analisar.</p>
+                </div>
+              ) : visiveis.length === 0 && imoveis.length > 0 && aAnalisar === 0 ? (
+                <div className="rounded-lg border border-dashed border-line bg-surface p-10 text-center">
+                  <p className="font-semibold">Todos os imóveis desta busca já foram selecionados.</p>
+                  <p className="mt-1 text-sm text-ink-2">Eles estão na aba Selecionados.</p>
                 </div>
               ) : visiveis.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-line bg-surface p-10 text-center">
@@ -674,13 +715,28 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(270px,1fr))] gap-4">
                   {visiveis.map((i) => (
                     <CardImovel
-                      key={i.id} imovel={i} avaliacao={avaliacoesTela[i.id]} onAbrir={() => setAberto(i.id)}
+                      key={i.id} imovel={i} avaliacao={avaliacoesTela[i.id]} onAbrir={() => abrirDetalhe(i.id)}
                       onIncluir={(incluir) => incluirNaPlanilha(i.id, incluir)}
                     />
                   ))}
                 </div>
               )}
             </>
+          )}
+
+          {movido && (
+            <div role="status" aria-live="polite" className="fixed bottom-20 left-1/2 z-40 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg bg-ink px-4 py-2.5 text-sm text-bg shadow-xl">
+              <span className="truncate">“{movido.titulo}” foi para <strong>Selecionados</strong></span>
+              <button
+                type="button" className="shrink-0 font-semibold text-accent-soft underline-offset-2 hover:underline"
+                onClick={() => {
+                  void marcar(movido.id, null);
+                  setMovido(null);
+                }}
+              >
+                Desfazer
+              </button>
+            </div>
           )}
 
           {incluidos > 0 && (
@@ -690,8 +746,8 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
               </p>
               <div className="flex items-center gap-2">
                 {estado === "pronto" && (
-                  <button type="button" onClick={() => setAba(aba === "todos" ? "selecionados" : "todos")} className="hidden whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium text-accent hover:bg-surface-2 sm:block">
-                    {aba === "todos" ? "Ver selecionados" : "Ver todos"}
+                  <button type="button" onClick={() => setAba(aba === "analisar" ? "selecionados" : "analisar")} className="hidden whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium text-accent hover:bg-surface-2 sm:block">
+                    {aba === "analisar" ? "Ver selecionados" : "Voltar para Analisar"}
                   </button>
                 )}
                 <button type="button" onClick={() => exportarCsv(paraExportar, avaliacoesTela, pesquisa?.nome)} className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-2">Exportar CSV</button>
@@ -709,8 +765,8 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
           avaliacao={avaliacoesTela[imovelAberto.id]}
           onFechar={fecharDetalhe}
           onSalvar={salvarAvaliacao}
-          onAnterior={indiceAberto > 0 ? () => setAberto(visiveis[indiceAberto - 1].id) : undefined}
-          onProximo={indiceAberto >= 0 && indiceAberto < visiveis.length - 1 ? () => setAberto(visiveis[indiceAberto + 1].id) : undefined}
+          onAnterior={anteriorId ? () => setAberto(anteriorId) : undefined}
+          onProximo={proximoId ? () => setAberto(proximoId) : undefined}
         />
       )}
 
