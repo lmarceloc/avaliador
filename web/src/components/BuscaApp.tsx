@@ -245,7 +245,7 @@ export function BuscaApp({ menuUsuario }: { menuUsuario?: React.ReactNode }) {
     setEstado("pronto");
     setErroGeral(null);
     setRapidos(RAPIDOS_INICIAIS);
-    setAba(Object.values(p.selecao).some(Boolean) ? "selecionados" : "analisar");
+    setAba("analisar");
     setDialogo(null);
   }
 
