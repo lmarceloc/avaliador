@@ -1,11 +1,14 @@
 // Pesquisas salvas (nome + resultados + seleção), válidas por 30 dias desde a última alteração.
 // Os resultados vêm da tabela buscas pelo requisicao_id: o site não precisa reenviar os imóveis.
+// Cada pesquisa é de uma empresa: todas as funções recebem o contexto e só enxergam as da empresa dele.
 import type { RequisicaoBusca, RespostaBusca } from "../../web/src/lib/contrato";
 import {
   DIAS_VALIDADE, juntarRespostas, normalizarNome, substituirResultados, validarSelecao,
   type AlteracaoPesquisa, type NovaPesquisa, type OrigemResultados, type PesquisaSalva, type ResumoPesquisa, type Selecao,
 } from "../../web/src/lib/pesquisas";
+import { sincronizarSeguidoras } from "./buscas";
 import type { Db } from "./db";
+import type { Contexto } from "./usuarios";
 
 export class ErroPesquisa extends Error {
   constructor(readonly codigo: number, mensagem: string) {
@@ -23,12 +26,13 @@ const json = (v: unknown) => JSON.stringify(v);
 const ehNomeRepetido = (e: unknown) => (e as { code?: string; constraint?: string }).code === "23505";
 
 /** Lê o resultado de uma busca (e das repetições de fonte) que ainda está no cache. */
-async function lerResultados(db: Db, origem: OrigemResultados): Promise<{ requisicao: RequisicaoBusca; resposta: RespostaBusca }> {
+async function lerResultados(db: Db, ctx: Contexto, origem: OrigemResultados): Promise<{ requisicao: RequisicaoBusca; resposta: RespostaBusca }> {
   const ids = [origem.requisicao_id, ...(origem.extras ?? [])];
   if (ids.some((id) => typeof id !== "string" || !UUID.test(id))) throw new ErroPesquisa(400, "requisicao_id inválido");
+  await sincronizarSeguidoras(db, ids);
   const { rows } = await db.query<{ requisicao_id: string; status: string; requisicao: RequisicaoBusca; resposta: RespostaBusca | null }>(
-    "select requisicao_id, status, requisicao, resposta from buscas where requisicao_id = any($1::uuid[])",
-    [ids],
+    "select requisicao_id, status, requisicao, resposta from buscas where requisicao_id = any($1::uuid[]) and empresa_id = $2",
+    [ids, ctx.empresaId],
   );
   const porId = new Map(rows.map((r) => [r.requisicao_id, r]));
   const principal = porId.get(origem.requisicao_id);
@@ -56,41 +60,43 @@ export async function limparPesquisasExpiradas(db: Db): Promise<number> {
   return rowCount ?? 0;
 }
 
-export async function listarPesquisas(db: Db): Promise<ResumoPesquisa[]> {
+export async function listarPesquisas(db: Db, ctx: Contexto): Promise<ResumoPesquisa[]> {
   const { rows } = await db.query<ResumoPesquisa>(
     `select p.id, p.nome, p.criado_em, p.atualizado_em, p.expira_em,
             coalesce(jsonb_array_length(p.resposta -> 'imoveis'), 0) as total_imoveis,
             (select count(*)::int from pesquisas_selecao s where s.pesquisa_id = p.id and s.incluido) as selecionados
        from pesquisas_salvas p
-      where p.expira_em > now()
+      where p.empresa_id = $1 and p.expira_em > now()
       order by p.atualizado_em desc`,
+    [ctx.empresaId],
   );
   return rows;
 }
 
-export async function lerPesquisa(db: Db, id: string): Promise<PesquisaSalva> {
+export async function lerPesquisa(db: Db, ctx: Contexto, id: string): Promise<PesquisaSalva> {
   if (!UUID.test(id)) throw new ErroPesquisa(404, NAO_ENCONTRADA);
   const { rows } = await db.query<Omit<PesquisaSalva, "selecao">>(
-    "select id, nome, criado_em, atualizado_em, expira_em, filtros, fontes, resposta from pesquisas_salvas where id = $1 and expira_em > now()",
-    [id],
+    `select id, nome, criado_em, atualizado_em, expira_em, filtros, fontes, resposta
+       from pesquisas_salvas where id = $1 and empresa_id = $2 and expira_em > now()`,
+    [id, ctx.empresaId],
   );
   if (!rows[0]) throw new ErroPesquisa(404, NAO_ENCONTRADA);
   return { ...rows[0], selecao: await lerSelecao(db, id) };
 }
 
-export async function criarPesquisa(db: Db, corpo: Partial<NovaPesquisa> | null): Promise<PesquisaSalva> {
+export async function criarPesquisa(db: Db, ctx: Contexto, corpo: Partial<NovaPesquisa> | null): Promise<PesquisaSalva> {
   const nome = normalizarNome(corpo?.nome);
   if (!nome) throw new ErroPesquisa(400, NOME_INVALIDO);
   const selecao = validarSelecao(corpo?.selecao);
   if (!selecao) throw new ErroPesquisa(400, "selecao deve ser { imovel_id: true | false }");
-  const { requisicao, resposta } = await lerResultados(db, { requisicao_id: corpo!.requisicao_id!, extras: corpo!.extras });
+  const { requisicao, resposta } = await lerResultados(db, ctx, { requisicao_id: corpo!.requisicao_id!, extras: corpo!.extras });
 
   await limparPesquisasExpiradas(db);
   let id: string;
   try {
     const { rows } = await db.query<{ id: string }>(
-      `insert into pesquisas_salvas (nome, filtros, fontes, resposta) values ($1, $2, $3, $4) returning id`,
-      [nome, json(requisicao.filtros), json(requisicao.fontes), json(resposta)],
+      `insert into pesquisas_salvas (nome, filtros, fontes, resposta, empresa_id, criado_por) values ($1, $2, $3, $4, $5, $6) returning id`,
+      [nome, json(requisicao.filtros), json(requisicao.fontes), json(resposta), ctx.empresaId, ctx.usuarioId],
     );
     id = rows[0].id;
   } catch (e) {
@@ -102,14 +108,15 @@ export async function criarPesquisa(db: Db, corpo: Partial<NovaPesquisa> | null)
       "insert into pesquisas_selecao (pesquisa_id, imovel_id, incluido) select $1, key, value::boolean from jsonb_each_text($2::jsonb)",
       [id, json(selecao)],
     );
-  return lerPesquisa(db, id);
+  return lerPesquisa(db, ctx, id);
 }
 
 /** Renomear e/ou trocar os resultados. Toda alteração renova os 30 dias. */
-export async function alterarPesquisa(db: Db, id: string, corpo: AlteracaoPesquisa | null): Promise<PesquisaSalva> {
-  const atual = await lerPesquisa(db, id);
+export async function alterarPesquisa(db: Db, ctx: Contexto, id: string, corpo: AlteracaoPesquisa | null): Promise<PesquisaSalva> {
+  // lerPesquisa já garante que a pesquisa é da empresa; o update repete a condição por segurança.
+  const atual = await lerPesquisa(db, ctx, id);
   const sets: string[] = [`atualizado_em = now()`, `expira_em = now() + ${VALIDADE}`];
-  const valores: unknown[] = [id];
+  const valores: unknown[] = [id, ctx.empresaId];
 
   if (corpo?.nome !== undefined) {
     const nome = normalizarNome(corpo.nome);
@@ -120,7 +127,7 @@ export async function alterarPesquisa(db: Db, id: string, corpo: AlteracaoPesqui
   if (corpo?.resultados) {
     const { modo } = corpo.resultados;
     if (modo !== "substituir" && modo !== "juntar") throw new ErroPesquisa(400, "modo deve ser substituir ou juntar");
-    const { requisicao, resposta } = await lerResultados(db, corpo.resultados);
+    const { requisicao, resposta } = await lerResultados(db, ctx, corpo.resultados);
     const nova = modo === "juntar" ? juntarRespostas(atual.resposta, resposta) : substituirResultados(atual.resposta, resposta, atual.selecao);
     valores.push(json(nova));
     sets.push(`resposta = $${valores.length}`);
@@ -130,23 +137,23 @@ export async function alterarPesquisa(db: Db, id: string, corpo: AlteracaoPesqui
     }
   }
   try {
-    await db.query(`update pesquisas_salvas set ${sets.join(", ")} where id = $1`, valores);
+    await db.query(`update pesquisas_salvas set ${sets.join(", ")} where id = $1 and empresa_id = $2`, valores);
   } catch (e) {
     if (ehNomeRepetido(e)) throw new ErroPesquisa(409, NOME_REPETIDO);
     throw e;
   }
-  return lerPesquisa(db, id);
+  return lerPesquisa(db, ctx, id);
 }
 
 /** Marca um imóvel na pesquisa: true = incluir, false = excluir, null = desfazer. Devolve a nova validade. */
-export async function marcarImovel(db: Db, id: string, imovelId: unknown, incluido: unknown): Promise<{ expira_em: string }> {
+export async function marcarImovel(db: Db, ctx: Contexto, id: string, imovelId: unknown, incluido: unknown): Promise<{ expira_em: string }> {
   if (typeof imovelId !== "string" || !imovelId) throw new ErroPesquisa(400, "imovel_id é obrigatório");
   if (incluido !== null && typeof incluido !== "boolean") throw new ErroPesquisa(400, "incluido deve ser true, false ou null");
   if (!UUID.test(id)) throw new ErroPesquisa(404, NAO_ENCONTRADA);
   const { rows } = await db.query<{ expira_em: string }>(
     `update pesquisas_salvas set atualizado_em = now(), expira_em = now() + ${VALIDADE}
-      where id = $1 and expira_em > now() returning expira_em`,
-    [id],
+      where id = $1 and empresa_id = $2 and expira_em > now() returning expira_em`,
+    [id, ctx.empresaId],
   );
   if (!rows[0]) throw new ErroPesquisa(404, NAO_ENCONTRADA);
   if (incluido === null) await db.query("delete from pesquisas_selecao where pesquisa_id = $1 and imovel_id = $2", [id, imovelId]);
@@ -159,8 +166,8 @@ export async function marcarImovel(db: Db, id: string, imovelId: unknown, inclui
   return rows[0];
 }
 
-export async function excluirPesquisa(db: Db, id: string): Promise<void> {
+export async function excluirPesquisa(db: Db, ctx: Contexto, id: string): Promise<void> {
   if (!UUID.test(id)) throw new ErroPesquisa(404, NAO_ENCONTRADA);
-  const { rowCount } = await db.query("delete from pesquisas_salvas where id = $1", [id]);
+  const { rowCount } = await db.query("delete from pesquisas_salvas where id = $1 and empresa_id = $2", [id, ctx.empresaId]);
   if (!rowCount) throw new ErroPesquisa(404, NAO_ENCONTRADA);
 }

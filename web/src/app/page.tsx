@@ -7,7 +7,7 @@ import { sessaoAtual } from "@/server/sessao-atual";
 // continua no shell pré-renderizado.
 async function Usuario() {
   const sessao = await sessaoAtual();
-  return sessao ? <MenuUsuario nome={sessao.nome} email={sessao.email} /> : null;
+  return sessao ? <MenuUsuario nome={sessao.nome} email={sessao.email} empresa={sessao.empresa} /> : null;
 }
 
 export default function Home() {

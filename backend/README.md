@@ -6,7 +6,7 @@ VPS. Só o servidor do site (Vercel) fala com ele, sempre com o header `X-API-Ke
 ```
 src/index.ts        sobe a API, aplica as migrações, encerra buscas órfãs e limpa cache e pesquisas vencidas de hora em hora
 src/servidor.ts     rotas HTTP
-src/buscas.ts       validação, cache de 6 h e coleta em segundo plano (era o workflow do n8n)
+src/buscas.ts       validação, cache compartilhado (24 h) e coleta em segundo plano (era o workflow do n8n)
 src/coleta.ts       roda os conectores e o pipeline de web/src/lib/regras.ts
 src/conectores.js   cadastro das fontes por cidade + conectores de Ponta Grossa (mesmo código que rodava no nó Code do n8n)
 src/conectores-curitiba.js  conectores de Curitiba, um por plataforma (PipeImob/Rede UNA, IC Informática, Tecimob, Supremo, Imobibrasil)
@@ -24,16 +24,21 @@ scripts/            importar-supabase.ts (cópia única dos dados) e testar-cole
 | Rota | O que faz |
 |---|---|
 | `GET /saude` | `{"ok":true}` se o banco responde. Única rota sem chave. |
-| `POST /buscas` | Valida e responde na hora: resultado do cache (6 h) ou `status: "processando"`. A coleta segue em segundo plano. |
-| `GET /buscas/:id` | `processando` (com `fontes[]`), o resultado completo, ou `404` "Busca não encontrada ou expirada". |
+| `POST /buscas` | Valida e responde na hora: resultado do cache (`CACHE_BUSCAS_HORAS`, padrão 24 h) ou `status: "processando"`. A coleta segue em segundo plano; se a mesma busca já está sendo coletada, esta pega carona nela. |
+| `GET /buscas/:id` | `processando` (com `fontes[]`), o resultado completo, ou `404` "Busca não encontrada ou expirada". Só a empresa que pediu lê. |
 | `GET /avaliacoes` · `PUT /avaliacoes` | Lista e grava a análise da avaliadora. |
 | `POST /analises-foto` · `/analises-foto/logs` · `/analises-foto/triagens` | Grava a sugestão por fotos. |
 | `POST /analises-foto/:id/aprovar` | Marca a sugestão como aprovada. |
-| `POST /auth/login` | `{ email, senha }` → `{ id, email, nome }` ou `401`. 5 erros seguidos bloqueiam o e-mail por 15 min (`429`). |
+| `POST /auth/login` | `{ email, senha }` → `{ id, email, nome, papel, empresa: { id, nome } }` ou `401`. 5 erros seguidos bloqueiam o e-mail por 15 min (`429`). |
 | `POST /auth/senha` | `{ email, senha_atual, senha_nova }` (mínimo 8 caracteres). |
 | `GET /pesquisas` · `POST /pesquisas` | Lista as pesquisas salvas; cria uma a partir de uma busca concluída (`{ nome, requisicao_id, extras?, selecao? }`). |
 | `GET /pesquisas/:id` · `PATCH` · `DELETE` | Abre (resultados + seleção); renomeia ou troca os resultados (`substituir` / `juntar`); apaga. |
 | `PUT /pesquisas/:id/selecao` | `{ imovel_id, incluido: true \| false \| null }`. Toda alteração renova os 30 dias. |
+
+Fora `/saude` e `/auth/*`, toda rota exige também `X-Usuario-Id` (o usuário da sessão do site; `401` sem ele ou se o
+usuário ou a empresa estão desativados). A empresa vem do banco a partir desse usuário, e cada rota só lê e grava dados
+dela: pesquisas salvas, avaliações e análises de fotos. O cache de buscas é compartilhado entre as empresas, porque o
+resultado da coleta é o mesmo para todas; cada empresa só lê as próprias requisições.
 
 Se o serviço reinicia no meio de uma coleta, a busca vira `erro` ("o serviço reiniciou") na próxima subida,
 e o front para de esperar.
@@ -71,14 +76,24 @@ e o front para de esperar.
 
 ## Usuários
 
-Os usuários do site ficam na tabela `usuarios` (e-mail, nome, hash scrypt da senha, ativo). Por enquanto o cadastro é pelo
-**Console** do serviço backend no EasyPanel:
+Cada usuário pertence a uma **empresa** (tabela `empresas`) e tem um papel (`admin` ou `membro`; por enquanto só
+informativo). Cada empresa só vê as próprias pesquisas salvas, avaliações e análises de fotos. Os usuários e dados de antes
+das empresas (migração `006_empresas.sql`) ficaram na empresa **Agência Byte**, com os usuários como admin.
+
+Por enquanto o cadastro é pelo **Console** do serviço backend no EasyPanel:
 
 ```
-node dist/usuarios.mjs criar carina@exemplo.com "Carina Souza"   # mostra a senha gerada; a pessoa troca no site
+node dist/usuarios.mjs empresas                                       # lista as empresas
+node dist/usuarios.mjs empresa-criar "Imobiliária Exemplo"
+node dist/usuarios.mjs empresa-desativar "Imobiliária Exemplo"        # ninguém da empresa entra mais, na hora
+node dist/usuarios.mjs empresa-ativar "Imobiliária Exemplo"
+
+node dist/usuarios.mjs criar carina@exemplo.com "Carina Souza" --empresa "Agência Byte" [--admin]
+                                                                     # mostra a senha gerada; a pessoa troca no site
+                                                                     # (--empresa pode faltar se houver uma empresa só)
 node dist/usuarios.mjs listar
 node dist/usuarios.mjs senha carina@exemplo.com                  # gera e mostra uma senha nova
-node dist/usuarios.mjs desativar carina@exemplo.com              # não entra mais (sessão aberta vale até vencer, 7 dias)
+node dist/usuarios.mjs desativar carina@exemplo.com              # perde o acesso na hora, mesmo com a sessão aberta
 node dist/usuarios.mjs ativar carina@exemplo.com
 ```
 

@@ -1,6 +1,6 @@
 import type { AvaliacaoImovel } from "@/lib/contrato";
 import { CLASSES_EC } from "@/config/avaliacao";
-import { listarAvaliacoes, salvarAvaliacao } from "@/lib/servidor";
+import { listarAvaliacoes, salvarAvaliacao, statusDoErro } from "@/lib/servidor";
 
 const ESTADOS_IBAPE = new Set<string>(CLASSES_EC);
 
@@ -8,7 +8,7 @@ export async function GET() {
   try {
     return Response.json(await listarAvaliacoes());
   } catch (e) {
-    return Response.json({ mensagem: (e as Error).message }, { status: 500 });
+    return Response.json({ mensagem: (e as Error).message }, { status: statusDoErro(e) });
   }
 }
 
@@ -27,6 +27,6 @@ export async function PUT(request: Request) {
   try {
     return Response.json(await salvarAvaliacao(a));
   } catch (e) {
-    return Response.json({ mensagem: (e as Error).message }, { status: 500 });
+    return Response.json({ mensagem: (e as Error).message }, { status: statusDoErro(e) });
   }
 }

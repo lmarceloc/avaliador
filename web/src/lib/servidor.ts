@@ -2,6 +2,7 @@
 import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { sessaoAtual } from "@/server/sessao-atual";
 import type { AvaliacaoImovel, RequisicaoBusca } from "./contrato";
 
 // Backend da VPS (pasta backend/): coleta das imobiliárias e banco Postgres.
@@ -15,13 +16,18 @@ export function usandoMock(): boolean {
   return !backend.base || process.env.FORCAR_MOCK === "1";
 }
 
-/** Repassa a chamada ao backend e devolve status e corpo como vieram. Backend fora do ar vira 502 com mensagem. */
+/**
+ * Repassa a chamada ao backend e devolve status e corpo como vieram. Backend fora do ar vira 502 com mensagem.
+ * Vai sempre com o usuário da sessão (X-Usuario-Id): o backend tira dele a empresa e só devolve dados dela.
+ * Sem sessão (o próprio login), o header não vai e o backend recusa tudo que não seja /auth.
+ */
 export async function chamarBackend(caminho: string, init: RequestInit = {}): Promise<Response> {
   const json = { "Content-Type": "application/json" };
+  const usuario = (await sessaoAtual())?.id;
   try {
     const resp = await fetch(`${backend.base}${caminho}`, {
       ...init,
-      headers: { ...json, "X-API-Key": backend.apiKey, ...init.headers },
+      headers: { ...json, "X-API-Key": backend.apiKey, ...(usuario ? { "X-Usuario-Id": usuario } : {}), ...init.headers },
       cache: "no-store",
       signal: AbortSignal.timeout(30_000),
     });
@@ -33,11 +39,21 @@ export async function chamarBackend(caminho: string, init: RequestInit = {}): Pr
   }
 }
 
-/** Chama o backend e devolve o JSON; erro do backend vira exceção com a mensagem dele. */
+/** Erro devolvido pelo backend, com o status HTTP dele (ex.: 401 quando o usuário foi desativado). */
+export class ErroBackend extends Error {
+  constructor(readonly status: number, mensagem: string) {
+    super(mensagem);
+  }
+}
+
+/** Status para responder ao navegador: o do backend quando veio dele, senão 500. */
+export const statusDoErro = (e: unknown) => (e instanceof ErroBackend ? e.status : 500);
+
+/** Chama o backend e devolve o JSON; erro do backend vira ErroBackend com a mensagem e o status dele. */
 export async function backendJson<T>(caminho: string, init: RequestInit = {}): Promise<T> {
   const resp = await chamarBackend(caminho, init);
   const corpo = (await resp.json().catch(() => ({}))) as { mensagem?: string };
-  if (!resp.ok) throw new Error(corpo.mensagem ?? `O backend respondeu ${resp.status}`);
+  if (!resp.ok) throw new ErroBackend(resp.status, corpo.mensagem ?? `O backend respondeu ${resp.status}`);
   return corpo as T;
 }
 

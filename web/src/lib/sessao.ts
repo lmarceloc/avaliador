@@ -10,6 +10,8 @@ export interface Sessao {
   id: string;
   email: string;
   nome: string;
+  /** Nome da empresa, só para exibir. Quem decide a empresa de verdade é o backend, a partir do id. */
+  empresa?: string;
   /** Expiração, em segundos desde 1970. */
   exp: number;
 }
@@ -26,7 +28,7 @@ export function segredoSessao(env: Record<string, string | undefined> = process.
 const assinar = (dados: string, segredo: string) => createHmac("sha256", segredo).update(dados).digest("base64url");
 
 export function criarToken(u: Omit<Sessao, "exp">, segredo: string, agora = Date.now()): string {
-  const sessao: Sessao = { id: u.id, email: u.email, nome: u.nome, exp: Math.floor(agora / 1000) + DURACAO_SESSAO_S };
+  const sessao: Sessao = { id: u.id, email: u.email, nome: u.nome, empresa: u.empresa, exp: Math.floor(agora / 1000) + DURACAO_SESSAO_S };
   const dados = Buffer.from(JSON.stringify(sessao)).toString("base64url");
   return `${dados}.${assinar(dados, segredo)}`;
 }

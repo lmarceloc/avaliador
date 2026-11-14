@@ -16,6 +16,14 @@ test("token assinado volta com os dados e expira em 7 dias", () => {
   assert.equal(lerToken(token, SEGREDO, agora + (DURACAO_SESSAO_S + 1) * 1000), null, "vencido");
 });
 
+test("a empresa vai no token só para exibir; token antigo, sem empresa, continua valendo", () => {
+  const comEmpresa = lerToken(criarToken({ ...USUARIO, empresa: "Agência Byte" }, SEGREDO), SEGREDO);
+  assert.equal(comEmpresa?.empresa, "Agência Byte");
+  const antigo = lerToken(criarToken(USUARIO, SEGREDO), SEGREDO);
+  assert.equal(antigo?.id, "u1");
+  assert.equal(antigo?.empresa, undefined);
+});
+
 test("token alterado, com outro segredo ou malformado é recusado", () => {
   const token = criarToken(USUARIO, SEGREDO);
   const [dados, assinatura] = token.split(".");

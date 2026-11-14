@@ -7,11 +7,18 @@ import type { AddressInfo } from "node:net";
 import { after, before, describe, test } from "node:test";
 import type pg from "pg";
 import type { Imovel, RequisicaoBusca } from "../../web/src/lib/contrato";
-import { encerrarBuscasInterrompidas, limparBuscasExpiradas } from "../src/buscas";
+import { promises as fs } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { encerrarBuscasInterrompidas, horasCache, limparBuscasExpiradas } from "../src/buscas";
 import { executarColeta, type ResultadoColeta } from "../src/coleta";
-import { criarPool, migrar } from "../src/db";
+import { criarPool, migrar, PASTA_SQL } from "../src/db";
 import { criarServidor } from "../src/servidor";
-import { autenticar, conferirSenha, criarUsuario, definirAtivo, gerarHash, redefinirSenha } from "../src/usuarios";
+import {
+  acharEmpresa, autenticar, conferirSenha, contextoDoUsuario, criarEmpresa, criarUsuario, definirAtivo, definirEmpresaAtiva, gerarHash,
+  redefinirSenha,
+} from "../src/usuarios";
 
 const URL_TESTE = process.env.DATABASE_URL_TESTE;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -50,6 +57,13 @@ describe("backend", { skip: !URL_TESTE && "defina DATABASE_URL_TESTE para rodar 
   let fechar: () => Promise<void>;
   let coletas = 0;
   const pendentes: Promise<void>[] = [];
+  // Empresa A ("Agência Byte", criada pela migração) e empresa B, com um usuário cada.
+  let empresaA: string;
+  let empresaB: string;
+  let usuarioA: string;
+  let usuarioB: string;
+  // Enquanto houver portão, a coleta falsa espera por ele (simula uma coleta demorada em andamento).
+  let portao: Promise<void> | null = null;
 
   // Coleta falsa: flow ok com 2 imóveis, kikina com erro. Passa pelo mesmo executarColeta do serviço.
   const coletar = (req: RequisicaoBusca): Promise<ResultadoColeta> => {
@@ -63,8 +77,12 @@ describe("backend", { skip: !URL_TESTE && "defina DATABASE_URL_TESTE para rodar 
     });
   };
 
-  const chamar = (caminho: string, init: RequestInit = {}, chave: string | null = CHAVE) =>
-    fetch(base + caminho, { ...init, headers: { "Content-Type": "application/json", ...(chave ? { "X-API-Key": chave } : {}), ...init.headers } });
+  const chamar = (caminho: string, init: RequestInit = {}, chave: string | null = CHAVE, usuario: string | null = usuarioA) =>
+    fetch(base + caminho, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...(chave ? { "X-API-Key": chave } : {}), ...(usuario ? { "X-Usuario-Id": usuario } : {}), ...init.headers },
+    });
+  const comoB = (caminho: string, init: RequestInit = {}) => chamar(caminho, init, CHAVE, usuarioB);
   const esperarColetas = async () => {
     await Promise.all(pendentes.splice(0));
     // a gravação do resultado roda depois da resposta HTTP; dá um respiro para o update terminar
@@ -74,10 +92,15 @@ describe("backend", { skip: !URL_TESTE && "defina DATABASE_URL_TESTE para rodar 
   before(async () => {
     pool = criarPool(URL_TESTE!);
     await pool.query("drop schema public cascade; create schema public");
+    await migrar(pool);
+    empresaA = (await acharEmpresa(pool, "Agência Byte")).id;
+    empresaB = (await criarEmpresa(pool, "Imobiliária B")).id;
+    usuarioA = (await criarUsuario(pool, "ana@empresa-a.com", "Ana", "senha-da-ana", empresaA, "admin")).id;
+    usuarioB = (await criarUsuario(pool, "bia@empresa-b.com", "Bia", "senha-da-bia", empresaB)).id;
     const servidor = criarServidor({
       db: pool, apiKey: CHAVE,
       coletar: (req) => {
-        const p = coletar(req);
+        const p = (portao ?? Promise.resolve()).then(() => coletar(req));
         pendentes.push(p.then(() => undefined));
         return p;
       },
@@ -92,7 +115,10 @@ describe("backend", { skip: !URL_TESTE && "defina DATABASE_URL_TESTE para rodar 
   });
 
   test("migrações aplicam uma vez só", async () => {
-    assert.deepEqual(await migrar(pool), ["001_inicial.sql", "002_pesquisas_salvas.sql", "003_usuarios.sql", "004_correcoes_avaliacao.sql", "005_tipo_casa_geminada.sql"]);
+    const { rows } = await pool.query("select arquivo from schema_migracoes order by arquivo");
+    assert.deepEqual(rows.map((r) => r.arquivo), [
+      "001_inicial.sql", "002_pesquisas_salvas.sql", "003_usuarios.sql", "004_correcoes_avaliacao.sql", "005_tipo_casa_geminada.sql", "006_empresas.sql",
+    ]);
     assert.deepEqual(await migrar(pool), []);
   });
 
@@ -166,8 +192,8 @@ describe("backend", { skip: !URL_TESTE && "defina DATABASE_URL_TESTE para rodar 
   test("buscas órfãs viram erro e as expiradas são apagadas", async () => {
     const id = randomUUID();
     await pool.query(
-      `insert into buscas (requisicao_id, chave_cache, status, requisicao, fontes_status) values ($1, 'x', 'processando', '{}', $2)`,
-      [id, JSON.stringify([{ id: "flow", nome: "Flow", status: "buscando", itens: 0 }])],
+      `insert into buscas (requisicao_id, chave_cache, status, requisicao, fontes_status, empresa_id) values ($1, 'x', 'processando', '{}', $2, $3)`,
+      [id, JSON.stringify([{ id: "flow", nome: "Flow", status: "buscando", itens: 0 }]), empresaA],
     );
     assert.equal(await encerrarBuscasInterrompidas(pool), 1);
     const corpo = await json(await chamar(`/buscas/${id}`));
@@ -360,11 +386,11 @@ describe("backend", { skip: !URL_TESTE && "defina DATABASE_URL_TESTE para rodar 
     // Repetição de uma fonte: kikina passa a ok e traz um imóvel novo.
     const extra = randomUUID();
     await pool.query(
-      `insert into buscas (requisicao_id, chave_cache, status, requisicao, resposta) values ($1, 'x', 'concluido', $2, $3)`,
+      `insert into buscas (requisicao_id, chave_cache, status, requisicao, resposta, empresa_id) values ($1, 'x', 'concluido', $2, $3, $4)`,
       [extra, JSON.stringify(requisicao({ fontes: ["kikina"] })), JSON.stringify({
         requisicao_id: extra, status: "concluido", fontes: [{ id: "kikina", nome: "Kikina", status: "ok", itens: 1 }],
         imoveis: [imovel("kikina-9", "kikina")], erros: [],
-      })],
+      }), empresaA],
     );
     r = await chamar(`/pesquisas/${p.id}`, { method: "PATCH", body: JSON.stringify({ resultados: { requisicao_id: extra, modo: "juntar" } }) });
     atual = await json(r);
@@ -395,16 +421,19 @@ describe("backend", { skip: !URL_TESTE && "defina DATABASE_URL_TESTE para rodar 
     assert.ok(await conferirSenha("segredo-123", hash));
     assert.ok(!(await conferirSenha("segredo-124", hash)));
 
-    await criarUsuario(pool, " Carina@Exemplo.com ", "Carina Souza", "senha-inicial");
-    await assert.rejects(criarUsuario(pool, "carina@exemplo.com", "Outra", "senha-inicial"), /Já existe/);
-    await assert.rejects(criarUsuario(pool, "sem-arroba", "X", "senha-inicial"), /E-mail inválido/);
-    await assert.rejects(criarUsuario(pool, "curta@exemplo.com", "X", "1234567"), /8 caracteres/);
+    await criarUsuario(pool, " Carina@Exemplo.com ", "Carina Souza", "senha-inicial", empresaA);
+    await assert.rejects(criarUsuario(pool, "carina@exemplo.com", "Outra", "senha-inicial", empresaB), /Já existe/, "e-mail único entre empresas");
+    await assert.rejects(criarUsuario(pool, "sem-arroba", "X", "senha-inicial", empresaA), /E-mail inválido/);
+    await assert.rejects(criarUsuario(pool, "curta@exemplo.com", "X", "1234567", empresaA), /8 caracteres/);
 
     const login = (email: string, senha: string) => chamar("/auth/login", { method: "POST", body: JSON.stringify({ email, senha }) });
     let r = await login("CARINA@exemplo.com", "senha-inicial");
     assert.equal(r.status, 200);
     const u = await json(r);
-    assert.deepEqual({ email: u.email, nome: u.nome }, { email: "carina@exemplo.com", nome: "Carina Souza" });
+    assert.deepEqual(
+      { email: u.email, nome: u.nome, papel: u.papel, empresa: u.empresa },
+      { email: "carina@exemplo.com", nome: "Carina Souza", papel: "membro", empresa: { id: empresaA, nome: "Agência Byte" } },
+    );
     assert.equal(u.senha_hash, undefined, "o hash nunca sai do backend");
     assert.ok((await pool.query("select ultimo_login from usuarios where email = 'carina@exemplo.com'")).rows[0].ultimo_login);
 
@@ -430,12 +459,218 @@ describe("backend", { skip: !URL_TESTE && "defina DATABASE_URL_TESTE para rodar 
   });
 
   test("usuários: 5 erros seguidos bloqueiam por 15 minutos", async () => {
-    await criarUsuario(pool, "marcelo@exemplo.com", "Marcelo", "senha-certa-1");
+    await criarUsuario(pool, "marcelo@exemplo.com", "Marcelo", "senha-certa-1", empresaA);
     const t0 = Date.now();
     for (let i = 0; i < 5; i++) await assert.rejects(autenticar(pool, "marcelo@exemplo.com", "errada", t0), /inválidos/);
     await assert.rejects(autenticar(pool, "marcelo@exemplo.com", "senha-certa-1", t0 + 60_000), /Muitas tentativas/);
     const r = await chamar("/auth/login", { method: "POST", body: JSON.stringify({ email: "marcelo@exemplo.com", senha: "senha-certa-1" }) });
     assert.equal(r.status, 429);
     assert.equal((await autenticar(pool, "marcelo@exemplo.com", "senha-certa-1", t0 + 16 * 60_000)).email, "marcelo@exemplo.com", "passado o bloqueio, entra");
+  });
+
+  // ---------- Empresas: cada uma no seu ambiente; cache de buscas compartilhado ----------
+
+  test("empresas: sem usuário, usuário desconhecido ou desativado, nada passa", async () => {
+    assert.equal((await chamar("/avaliacoes", {}, CHAVE, null)).status, 401);
+    assert.equal((await chamar("/avaliacoes", {}, CHAVE, randomUUID())).status, 401);
+    assert.equal((await chamar("/avaliacoes", {}, CHAVE, "nao-e-uuid")).status, 401);
+    assert.equal((await chamar("/pesquisas", {}, CHAVE, null)).status, 401);
+
+    const temp = await criarUsuario(pool, "temp@empresa-b.com", "Temp", "senha-do-temp", empresaB);
+    assert.equal((await chamar("/avaliacoes", {}, CHAVE, temp.id)).status, 200);
+    await definirAtivo(pool, "temp@empresa-b.com", false);
+    assert.equal((await chamar("/avaliacoes", {}, CHAVE, temp.id)).status, 401, "desativado perde o acesso na hora, mesmo com sessão válida no site");
+
+    // Empresa desativada: ninguém dela entra nem usa a API.
+    await definirEmpresaAtiva(pool, "Imobiliária B", false);
+    assert.equal(await contextoDoUsuario(pool, usuarioB), null);
+    const login = await chamar("/auth/login", { method: "POST", body: JSON.stringify({ email: "bia@empresa-b.com", senha: "senha-da-bia" }) }, CHAVE, null);
+    assert.equal(login.status, 401);
+    await definirEmpresaAtiva(pool, "Imobiliária B", true);
+    assert.deepEqual(await contextoDoUsuario(pool, usuarioB), { usuarioId: usuarioB, empresaId: empresaB, papel: "membro" });
+  });
+
+  test("empresas: avaliações separadas, mesmo imóvel com análises diferentes", async () => {
+    const put = (como: typeof chamar | typeof comoB, corpo: object) => como("/avaliacoes", { method: "PUT", body: JSON.stringify(corpo) });
+    assert.equal((await put(chamar, { imovel_id: "flow-77", estado_conservacao: "B", observacoes: "da A" })).status, 200);
+    assert.equal((await put(comoB, { imovel_id: "flow-77", estado_conservacao: "F", observacoes: "da B" })).status, 200);
+    const daA = (await json(await chamar("/avaliacoes"))).find((a: { imovel_id: string }) => a.imovel_id === "flow-77");
+    const daB = await json(await comoB("/avaliacoes"));
+    assert.equal(daA.estado_conservacao, "B");
+    assert.deepEqual(daB.map((a: { imovel_id: string; estado_conservacao: string }) => [a.imovel_id, a.estado_conservacao]), [["flow-77", "F"]], "B só vê a dela");
+    const { rows } = await pool.query("select atualizado_por from avaliacoes_imovel where empresa_id = $1 and imovel_id = 'flow-77'", [empresaB]);
+    assert.equal(rows[0].atualizado_por, usuarioB);
+  });
+
+  test("empresas: pesquisas salvas separadas, mesmo nome em empresas diferentes", async () => {
+    const idA = await buscaConcluida();
+    const pA = await json(await criar({ nome: "Casa Igual", requisicao_id: idA }));
+    // B não lê, não altera, não marca e não apaga a pesquisa de A (responde como se não existisse).
+    assert.equal((await comoB(`/pesquisas/${pA.id}`)).status, 404);
+    assert.equal((await comoB(`/pesquisas/${pA.id}`, { method: "PATCH", body: JSON.stringify({ nome: "Roubada" }) })).status, 404);
+    assert.equal((await comoB(`/pesquisas/${pA.id}/selecao`, { method: "PUT", body: JSON.stringify({ imovel_id: "flow-1", incluido: true }) })).status, 404);
+    assert.equal((await comoB(`/pesquisas/${pA.id}`, { method: "DELETE" })).status, 404);
+    assert.ok(!(await json(await comoB("/pesquisas"))).some((x: { id: string }) => x.id === pA.id));
+    assert.equal((await json(await chamar(`/pesquisas/${pA.id}`))).nome, "Casa Igual", "continua intacta para A");
+
+    // B também não salva uma pesquisa a partir da busca de A.
+    assert.equal((await comoB("/pesquisas", { method: "POST", body: JSON.stringify({ nome: "Com busca alheia", requisicao_id: idA }) })).status, 409);
+
+    // Com a busca dela, B pode usar o mesmo nome.
+    const reqB = requisicao();
+    await comoB("/buscas", { method: "POST", body: JSON.stringify(reqB) });
+    await esperarColetas();
+    const r = await comoB("/pesquisas", { method: "POST", body: JSON.stringify({ nome: "casa igual", requisicao_id: reqB.requisicao_id }) });
+    assert.equal(r.status, 201, "nome único só dentro da empresa");
+    const { rows } = await pool.query("select empresa_id, criado_por from pesquisas_salvas where id = $1", [(await json(r)).id]);
+    assert.deepEqual(rows[0], { empresa_id: empresaB, criado_por: usuarioB });
+  });
+
+  test("empresas: análises de fotos separadas", async () => {
+    const analise = randomUUID();
+    await chamar("/analises-foto", {
+      method: "POST",
+      body: JSON.stringify({ id: analise, imovel_id: "flow-1", status: "sugerido", modelo: "m", empresa_id: empresaB, usuario_id: usuarioB }),
+    });
+    const { rows } = await pool.query("select empresa_id, usuario_id from analises_foto where id = $1", [analise]);
+    assert.deepEqual(rows[0], { empresa_id: empresaA, usuario_id: usuarioA }, "empresa e usuário vêm da sessão, não do corpo");
+
+    const log = { id: randomUUID(), analise_id: analise, imovel_id: "flow-1", foto_url: "https://exemplo.com/1.jpg", modelo: "m", provedor: "p", status: "lida" };
+    assert.equal((await comoB("/analises-foto/logs", { method: "POST", body: JSON.stringify([log]) })).status, 404, "B não grava log na análise de A");
+    assert.equal((await comoB(`/analises-foto/${analise}/aprovar`, { method: "POST", body: JSON.stringify({ imovel_id: "flow-1" }) })).status, 404);
+    assert.equal((await chamar("/analises-foto/logs", { method: "POST", body: JSON.stringify([log]) })).status, 201);
+  });
+
+  test("cache compartilhado: B pesquisa o mesmo que A e recebe na hora, sem nova coleta", async () => {
+    const filtros = { ...requisicao().filtros, bairros: ["Uvaranas"] };
+    const reqA = requisicao({ filtros });
+    await chamar("/buscas", { method: "POST", body: JSON.stringify(reqA) });
+    await esperarColetas();
+    const antes = coletas;
+
+    const reqB = requisicao({ filtros, fontes: ["kikina", "flow"] });
+    const r = await comoB("/buscas", { method: "POST", body: JSON.stringify(reqB) });
+    const corpo = await json(r);
+    assert.equal(corpo.status, "parcial");
+    assert.equal(corpo.requisicao_id, reqB.requisicao_id);
+    assert.equal(coletas, antes, "não abriu os sites de novo");
+
+    // Cada empresa só lê a própria requisição, mesmo sendo o mesmo resultado.
+    assert.equal((await comoB(`/buscas/${reqB.requisicao_id}`)).status, 200);
+    assert.equal((await comoB(`/buscas/${reqA.requisicao_id}`)).status, 404);
+    assert.equal((await chamar(`/buscas/${reqB.requisicao_id}`)).status, 404);
+
+    // A cópia vence junto com o original: repetir a busca não estica a validade do dado.
+    const { rows } = await pool.query(
+      "select requisicao_id, expira_em, empresa_id from buscas where requisicao_id = any($1::uuid[])",
+      [[reqA.requisicao_id, reqB.requisicao_id]],
+    );
+    const porId = Object.fromEntries(rows.map((l) => [l.requisicao_id, l]));
+    assert.equal(porId[reqB.requisicao_id].expira_em.getTime(), porId[reqA.requisicao_id].expira_em.getTime());
+    assert.equal(porId[reqB.requisicao_id].empresa_id, empresaB);
+  });
+
+  test("busca em andamento: B pega carona na coleta de A em vez de abrir os sites de novo", async () => {
+    let abrir!: () => void;
+    portao = new Promise<void>((r) => (abrir = r));
+    const filtros = { ...requisicao().filtros, bairros: ["Oficinas"] };
+    const reqA = requisicao({ filtros });
+    const reqB = requisicao({ filtros });
+    const reqB2 = requisicao({ filtros, atualizar_cache: true });
+    try {
+      assert.equal((await json(await chamar("/buscas", { method: "POST", body: JSON.stringify(reqA) }))).status, "processando");
+      const antes = coletas;
+      const [rB, rB2] = await Promise.all([
+        comoB("/buscas", { method: "POST", body: JSON.stringify(reqB) }),
+        comoB("/buscas", { method: "POST", body: JSON.stringify(reqB2) }),
+      ]);
+      assert.equal((await json(rB)).status, "processando");
+      assert.equal((await json(rB2)).status, "processando", "atualizar_cache também aproveita a coleta que acabou de começar");
+      const progresso = await json(await comoB(`/buscas/${reqB.requisicao_id}`));
+      assert.equal(progresso.status, "processando");
+      assert.deepEqual(progresso.fontes.map((f: { id: string }) => f.id), ["flow", "kikina"], "mostra o progresso da coleta seguida");
+      assert.equal(coletas, antes, "nenhuma coleta nova enquanto a de A roda");
+    } finally {
+      abrir();
+      portao = null;
+    }
+    await esperarColetas();
+    for (const id of [reqB.requisicao_id, reqB2.requisicao_id]) {
+      const final = await json(await comoB(`/buscas/${id}`));
+      assert.equal(final.status, "parcial");
+      assert.equal(final.requisicao_id, id, "o resultado vem com o requisicao_id de quem seguiu");
+      assert.equal(final.imoveis.length, 2);
+    }
+    // B consegue salvar a pesquisa a partir da busca que seguiu a de A.
+    const r = await comoB("/pesquisas", { method: "POST", body: JSON.stringify({ nome: "Carona", requisicao_id: reqB.requisicao_id }) });
+    assert.equal(r.status, 201);
+  });
+
+  test("busca em andamento travada não segura a chave para sempre", async () => {
+    const filtros = { ...requisicao().filtros, bairros: ["Ronda"] };
+    const travada = requisicao({ filtros });
+    // Simula uma coleta que começou há 20 minutos e nunca gravou o fim.
+    let abrir!: () => void;
+    portao = new Promise<void>((r) => (abrir = r));
+    await chamar("/buscas", { method: "POST", body: JSON.stringify(travada) });
+    await pool.query("update buscas set criado_em = now() - interval '20 minutes' where requisicao_id = $1", [travada.requisicao_id]);
+    portao = null;
+    const nova = requisicao({ filtros });
+    const antes = coletas;
+    assert.equal((await json(await comoB("/buscas", { method: "POST", body: JSON.stringify(nova) }))).status, "processando");
+    assert.equal((await json(await chamar(`/buscas/${travada.requisicao_id}`))).status, "erro", "a travada vira erro para o front parar de esperar");
+    abrir();
+    await esperarColetas();
+    // A nova abriu a coleta dela (em vez de seguir a travada); a travada, liberada agora, também termina.
+    assert.equal(coletas, antes + 2);
+    assert.equal((await json(await comoB(`/buscas/${nova.requisicao_id}`))).status, "parcial");
+  });
+
+  test("validade do cache: CACHE_BUSCAS_HORAS (padrão 24 h) e gravada no fim da coleta", async () => {
+    assert.equal(horasCache({}), 24);
+    assert.equal(horasCache({ CACHE_BUSCAS_HORAS: "48" }), 48);
+    for (const ruim of ["0", "169", "abc", "1.5", ""]) assert.equal(horasCache({ CACHE_BUSCAS_HORAS: ruim }), 24, ruim);
+    const id = await buscaConcluida({ filtros: { ...requisicao().filtros, bairros: ["Nova Rússia"] } });
+    const { rows } = await pool.query("select extract(epoch from expira_em - concluido_em) / 3600 as horas from buscas where requisicao_id = $1", [id]);
+    assert.ok(Math.abs(Number(rows[0].horas) - 24) < 0.01, `veio ${rows[0].horas}`);
+  });
+
+  test("migração 006: dados e usuários existentes vão para a Agência Byte", async () => {
+    // Banco no estado anterior (001 a 005) num schema à parte, com dados de antes das empresas.
+    const pasta = await fs.mkdtemp(path.join(tmpdir(), "migr-"));
+    const todos = (await fs.readdir(PASTA_SQL)).filter((a) => a.endsWith(".sql")).sort();
+    for (const a of todos) await fs.copyFile(new URL(a, PASTA_SQL), path.join(pasta, a));
+    await fs.rename(path.join(pasta, "006_empresas.sql"), path.join(pasta, "006_empresas.sql.depois"));
+    const schema = "migracao_teste";
+    await pool.query(`drop schema if exists ${schema} cascade; create schema ${schema}`);
+    const url = new URL(URL_TESTE!);
+    url.searchParams.set("options", `-c search_path=${schema}`);
+    const antigo = criarPool(url.toString());
+    try {
+      const pastaUrl = pathToFileURL(pasta + "/");
+      assert.equal((await migrar(antigo, pastaUrl)).length, 5);
+      const u = await antigo.query<{ id: string }>("insert into usuarios (email, nome, senha_hash) values ('velho@x.com', 'Velho', 'h') returning id");
+      await antigo.query("insert into avaliacoes_imovel (imovel_id, estado_conservacao) values ('flow-1', 'C')");
+      await antigo.query("insert into pesquisas_salvas (nome, filtros, fontes, resposta) values ('Antiga', '{}', '[]', '{}')");
+      await antigo.query("insert into analises_foto (id, imovel_id, status, modelo) values ($1, 'flow-1', 'sugerido', 'm')", [randomUUID()]);
+      await antigo.query("insert into buscas (requisicao_id, chave_cache, status, requisicao) values ($1, 'k', 'processando', '{}'), ($2, 'k', 'processando', '{}')", [randomUUID(), randomUUID()]);
+
+      await fs.rename(path.join(pasta, "006_empresas.sql.depois"), path.join(pasta, "006_empresas.sql"));
+      assert.deepEqual(await migrar(antigo, pastaUrl), ["006_empresas.sql"]);
+      const empresas = (await antigo.query("select id, nome from empresas")).rows;
+      assert.deepEqual(empresas.map((e) => e.nome), ["Agência Byte"]);
+      const byte = empresas[0].id;
+      assert.deepEqual((await antigo.query("select empresa_id, papel from usuarios where id = $1", [u.rows[0].id])).rows[0], { empresa_id: byte, papel: "admin" });
+      for (const t of ["avaliacoes_imovel", "pesquisas_salvas", "analises_foto", "buscas"]) {
+        const { rows } = await antigo.query(`select count(*)::int as n from ${t} where empresa_id is distinct from $1`, [byte]);
+        assert.equal(rows[0].n, 0, t);
+      }
+      const { rows: proc } = await antigo.query("select status from buscas order by status");
+      assert.deepEqual(proc.map((r) => r.status), ["erro", "processando"], "duas coletas iguais interrompidas: só uma fica em andamento");
+    } finally {
+      await antigo.end();
+      await pool.query(`drop schema ${schema} cascade`);
+      await fs.rm(pasta, { recursive: true, force: true });
+    }
   });
 });

@@ -4,6 +4,7 @@ import { analisarFotos, lerConfig } from "@/server/analise-fotos";
 import { lerConfigJev, triarAnalise, type TipoImovelTriagem } from "@/server/triagem-jev";
 import { aprovarAnalise, armazenamento, armazenamentoTriagem, fetchFoto, urlPermitida } from "@/server/analise-armazenamento";
 import { sessaoAtual } from "@/server/sessao-atual";
+import { statusDoErro } from "@/lib/servidor";
 
 export const maxDuration = 120;
 
@@ -50,6 +51,6 @@ export async function PATCH(request: Request) {
     await aprovarAnalise(c.analise_id, c.imovel_id, (await sessaoAtual())?.email ?? null);
     return Response.json({ ok: true });
   } catch (e) {
-    return Response.json({ mensagem: (e as Error).message }, { status: 500 });
+    return Response.json({ mensagem: (e as Error).message }, { status: statusDoErro(e) });
   }
 }

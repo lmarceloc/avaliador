@@ -1,4 +1,6 @@
 // API HTTP do backend. Só o servidor do site (Vercel) chama estas rotas, sempre com o header X-API-Key.
+// Fora o login e a troca de senha, toda rota exige também X-Usuario-Id (o usuário da sessão do site): a
+// empresa sai do banco a partir dele, nunca do que o site manda, e cada rota só enxerga dados dessa empresa.
 import { createHash, timingSafeEqual } from "node:crypto";
 import http from "node:http";
 import type { AvaliacaoImovel, RequisicaoBusca } from "../../web/src/lib/contrato";
@@ -6,7 +8,7 @@ import { aprovarAnalise, gravarAnalise, gravarLogs, gravarTriagens } from "./ana
 import { listarAvaliacoes, salvarAvaliacao } from "./avaliacoes";
 import { consultarBusca, iniciarBusca } from "./buscas";
 import { alterarPesquisa, criarPesquisa, ErroPesquisa, excluirPesquisa, lerPesquisa, listarPesquisas, marcarImovel } from "./pesquisas";
-import { autenticar, ErroUsuario, trocarSenha } from "./usuarios";
+import { autenticar, contextoDoUsuario, ErroUsuario, trocarSenha, type Contexto } from "./usuarios";
 import type { ResultadoColeta } from "./coleta";
 import type { Db } from "./db";
 
@@ -76,18 +78,31 @@ async function rotear(req: http.IncomingMessage, deps: DepsServidor): Promise<[n
   const metodo = req.method ?? "GET";
   const rota = `${metodo} /${partes.map((p, i) => (i > 0 ? ":" : p)).join("/")}`;
 
+  if (rota === "POST /auth/:") {
+    // POST /auth/login { email, senha } → { id, email, nome, papel, empresa }. O site cria a sessão; o backend só confere.
+    // POST /auth/senha { email, senha_atual, senha_nova }
+    const c = (await lerJson(req)) as { email?: unknown; senha?: unknown; senha_atual?: unknown; senha_nova?: unknown } | null;
+    if (partes[1] === "login") return [200, await autenticar(db, c?.email, c?.senha)];
+    if (partes[1] !== "senha") throw new ErroHttp(404, "Rota não encontrada");
+    await trocarSenha(db, c?.email, c?.senha_atual, c?.senha_nova);
+    return [200, { ok: true }];
+  }
+
+  const ctx: Contexto | null = await contextoDoUsuario(db, req.headers["x-usuario-id"]);
+  if (!ctx) throw new ErroHttp(401, "Sua sessão expirou. Entre de novo.");
+
   switch (rota) {
     case "POST /buscas": {
-      const r = await iniciarBusca(db, await lerJson(req), deps.coletar);
+      const r = await iniciarBusca(db, ctx, await lerJson(req), deps.coletar);
       r.coleta?.catch((e) => deps.log?.(`coleta falhou ao gravar: ${(e as Error).message}`));
       return [r.codigo, r.corpo];
     }
     case "GET /buscas/:": {
-      const r = await consultarBusca(db, partes[1]);
+      const r = await consultarBusca(db, ctx, partes[1]);
       return [r.codigo, r.corpo];
     }
     case "GET /avaliacoes":
-      return [200, await listarAvaliacoes(db)];
+      return [200, await listarAvaliacoes(db, ctx)];
     case "PUT /avaliacoes": {
       const a = (await lerJson(req)) as AvaliacaoImovel | null;
       if (!a?.imovel_id) throw new ErroHttp(400, "imovel_id é obrigatório");
@@ -95,54 +110,47 @@ async function rotear(req: http.IncomingMessage, deps: DepsServidor): Promise<[n
         throw new ErroHttp(400, "Estado de conservação deve ser de A a I (IBAPE)");
       const erro = validarCorrecoes(a);
       if (erro) throw new ErroHttp(400, erro);
-      return [200, await salvarAvaliacao(db, a)];
+      return [200, await salvarAvaliacao(db, ctx, a)];
     }
     case "POST /analises-foto": {
       const a = await lerJson(req);
       if (!a || typeof a !== "object") throw new ErroHttp(400, "Corpo inválido");
-      await gravarAnalise(db, a as Record<string, unknown>);
+      await gravarAnalise(db, ctx, a as Record<string, unknown>);
       return [201, { ok: true }];
     }
     case "POST /analises-foto/:": {
       // POST /analises-foto/logs e POST /analises-foto/triagens
       const corpo = await lerJson(req);
-      if (partes[1] === "logs") await gravarLogs(db, lista(corpo, "logs"));
-      else if (partes[1] === "triagens") await gravarTriagens(db, lista(corpo, "triagens"));
+      let ok: boolean;
+      if (partes[1] === "logs") ok = await gravarLogs(db, ctx, lista(corpo, "logs"));
+      else if (partes[1] === "triagens") ok = await gravarTriagens(db, ctx, lista(corpo, "triagens"));
       else break;
+      if (!ok) throw new ErroHttp(404, "Análise não encontrada");
       return [201, { ok: true }];
     }
-    case "POST /auth/:": {
-      // POST /auth/login { email, senha } → { id, email, nome }. O site cria a sessão; o backend só confere.
-      // POST /auth/senha { email, senha_atual, senha_nova }
-      const c = (await lerJson(req)) as { email?: unknown; senha?: unknown; senha_atual?: unknown; senha_nova?: unknown } | null;
-      if (partes[1] === "login") return [200, await autenticar(db, c?.email, c?.senha)];
-      if (partes[1] !== "senha") break;
-      await trocarSenha(db, c?.email, c?.senha_atual, c?.senha_nova);
-      return [200, { ok: true }];
-    }
     case "GET /pesquisas":
-      return [200, await listarPesquisas(db)];
+      return [200, await listarPesquisas(db, ctx)];
     case "POST /pesquisas":
-      return [201, await criarPesquisa(db, (await lerJson(req)) as never)];
+      return [201, await criarPesquisa(db, ctx, (await lerJson(req)) as never)];
     case "GET /pesquisas/:":
-      return [200, await lerPesquisa(db, partes[1])];
+      return [200, await lerPesquisa(db, ctx, partes[1])];
     case "PATCH /pesquisas/:":
-      return [200, await alterarPesquisa(db, partes[1], (await lerJson(req)) as never)];
+      return [200, await alterarPesquisa(db, ctx, partes[1], (await lerJson(req)) as never)];
     case "DELETE /pesquisas/:":
-      await excluirPesquisa(db, partes[1]);
+      await excluirPesquisa(db, ctx, partes[1]);
       return [200, { ok: true }];
     case "PUT /pesquisas/:/:": {
       // PUT /pesquisas/:id/selecao  { imovel_id, incluido: true | false | null }
       if (partes[2] !== "selecao") break;
       const c = (await lerJson(req)) as { imovel_id?: unknown; incluido?: unknown } | null;
-      return [200, await marcarImovel(db, partes[1], c?.imovel_id, c?.incluido ?? null)];
+      return [200, await marcarImovel(db, ctx, partes[1], c?.imovel_id, c?.incluido ?? null)];
     }
     case "POST /analises-foto/:/:": {
       // POST /analises-foto/:id/aprovar  { imovel_id, aprovado_por }
       if (partes[2] !== "aprovar") break;
       const c = (await lerJson(req)) as { imovel_id?: string; aprovado_por?: string | null } | null;
       if (!c?.imovel_id) throw new ErroHttp(400, "imovel_id é obrigatório");
-      const ok = await aprovarAnalise(db, partes[1], c.imovel_id, c.aprovado_por ?? null);
+      const ok = await aprovarAnalise(db, ctx, partes[1], c.imovel_id, c.aprovado_por ?? null);
       if (!ok) throw new ErroHttp(404, "Análise não encontrada");
       return [200, { ok: true }];
     }

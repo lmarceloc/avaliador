@@ -54,8 +54,8 @@ function DialogoTrocarSenha({ onFechar }: { onFechar: () => void }) {
   );
 }
 
-/** Nome de quem está logado, com "Trocar senha" e "Sair". */
-export function MenuUsuario({ nome, email }: { nome: string; email: string }) {
+/** Nome de quem está logado (e a empresa), com "Trocar senha" e "Sair". */
+export function MenuUsuario({ nome, email, empresa }: { nome: string; email: string; empresa?: string }) {
   const [aberto, setAberto] = useState(false);
   const [trocando, setTrocando] = useState(false);
   const router = useRouter();
@@ -79,7 +79,10 @@ export function MenuUsuario({ nome, email }: { nome: string; email: string }) {
         <>
           <div className="fixed inset-0 z-40" onClick={() => setAberto(false)} />
           <div role="menu" className="absolute right-0 z-50 mt-1 w-56 rounded-lg border border-line bg-surface p-1 shadow-lg">
-            <p className="truncate px-3 py-2 text-xs text-ink-3">{email}</p>
+            <div className="px-3 py-2 text-xs">
+              {empresa && <p className="truncate font-medium text-ink-2">{empresa}</p>}
+              <p className="truncate text-ink-3">{email}</p>
+            </div>
             <button type="button" role="menuitem" onClick={() => { setAberto(false); setTrocando(true); }} className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-surface-2">Trocar senha</button>
             <button type="button" role="menuitem" onClick={sair} className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-surface-2">Sair</button>
           </div>

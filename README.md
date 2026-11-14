@@ -29,7 +29,7 @@ com fotos, link direto para o anúncio e a verificação de cada filtro.
 ```
 web/        Next.js 16 (App Router), na Vercel: front + rotas de API que repassam ao backend
 backend/    serviço Node na VPS (EasyPanel): coleta nas imobiliárias + banco Postgres
-            (buscas com cache de 6 h, avaliacoes_imovel, análise de fotos e triagem do Jev)
+            (empresas e usuários, buscas com cache compartilhado de 24 h, avaliacoes_imovel, análise de fotos e triagem do Jev)
 ```
 
 Sem `BACKEND_URL`, o front roda contra uma busca simulada que segue o contrato da seção 5 da especificação.
@@ -91,7 +91,8 @@ num cookie `HttpOnly`/`Secure`/`SameSite=Lax` assinado com `SESSAO_SEGREDO`, vá
 fica fechado (503). No topo, o menu do usuário tem **Trocar senha** e **Sair**.
 
 Cadastro (por enquanto pelo console do backend no EasyPanel; ver [backend/README.md](backend/README.md#usuários)):
-`node dist/usuarios.mjs criar carina@exemplo.com "Carina Souza"` mostra uma senha gerada, que a pessoa troca no site.
+`node dist/usuarios.mjs criar carina@exemplo.com "Carina Souza" --empresa "Agência Byte"` mostra uma senha gerada, que a
+pessoa troca no site. Cada usuário pertence a uma empresa e só vê as pesquisas e análises dela.
 Um cadastro pela tela inicial pode ser ligado depois: a tabela já tem `ativo` para contas aguardando aprovação.
 
 O front aceita os dois modos da seção 6.4. Se o `POST` voltar `status: "processando"`, ele consulta
@@ -137,7 +138,7 @@ A busca simulada e o backend da VPS usam essas mesmas funções: o build do back
   para uma pesquisa nova.
 - Sem pesquisa salva, a seleção fica só na tela: o app avisa e pede confirmação antes de perder.
 - A planilha é gerada de novo a cada exportação, com o nome da pesquisa no arquivo (`casa-adriana-2026-10-28.xlsx`).
-- Os resultados são copiados pelo backend a partir da busca (`buscas`), por isso é preciso salvar até 6 h depois de pesquisar.
+- Os resultados são copiados pelo backend a partir da busca (`buscas`), por isso é preciso salvar até 24 h depois de pesquisar.
 - A antiga marcação única por imóvel (`avaliacoes_imovel.incluido_avaliacao`) não é mais usada pela tela; fica no banco.
 
 ### Colunas da planilha

@@ -34,7 +34,7 @@ O endereço é **https://avaliador.agenciabyte.com**. Entre com o seu **e-mail**
 4. Clique em **Pesquisar**. Aparece o andamento por fonte (na fila → buscando → concluído ou falhou).
 5. Quando termina, os imóveis aparecem em lista, com o resumo no topo (total, quantos atendem, repetidos agrupados).
 
-**Botão Atualizar** (aparece depois da primeira busca): refaz a coleta direto nos sites, ignorando o cache. Sem ele, uma busca igual feita há menos de **6 horas** reaproveita o resultado guardado, que é mais rápido.
+**Botão Atualizar** (aparece depois da primeira busca): refaz a coleta direto nos sites, ignorando o cache. Sem ele, uma busca igual feita há menos de **24 horas** (por você ou por outra empresa) reaproveita o resultado guardado, que é mais rápido.
 
 **Se uma fonte falhar**, aparece um aviso e os resultados mostrados vêm das demais. A fonte Madol pode pedir captcha e falhar com mais frequência.
 
